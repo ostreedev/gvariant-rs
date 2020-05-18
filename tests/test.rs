@@ -44,10 +44,20 @@ fn test_non_normal_values() {
     //assert_eq!(<gv!("a(yy)")>::mark(&[0x03, 0x04, 0x05, 0x06, 0x07]), []);
 
     // Start or end boundary of child falls outside the container
-    assert_eq!(<gv!("as")>::mark(b"foo\0bar\0baz\0\x04\x10\x0c").into_iter().map(|x| x.to_bytes()).collect::<Vec<_>>(), [b"foo".as_ref(), b"", b""]);
+    let gv_as = <gv!("as")>::mark(b"foo\0bar\0baz\0\x04\x10\x0c");
+    assert_eq!(gv_as.into_iter().map(|x| x.to_bytes()).collect::<Vec<_>>(), [b"foo".as_ref(), b"", b""]);
+    assert_eq!(gv_as[0].to_bytes(), b"foo");
+    assert_eq!(gv_as[1].to_bytes(), b"");
+    assert_eq!(gv_as[2].to_bytes(), b"");
+    assert_eq!(gv_as.len(), 3);
 
     // End boundary precedes start boundary
-    assert_eq!(<gv!("as")>::mark(b"foo\0bar\0baz\0\x04\x00\x0c").into_iter().map(|x| x.to_cstr().to_bytes()).collect::<Vec<_>>(), [b"foo".as_ref(), b"", b"foo"]);
+    let gv_as = <gv!("as")>::mark(b"foo\0bar\0baz\0\x04\x00\x0c");
+    assert_eq!(gv_as.into_iter().map(|x| x.to_cstr().to_bytes()).collect::<Vec<_>>(), [b"foo".as_ref(), b"", b"foo"]);
+    assert_eq!(gv_as[0].to_bytes(), b"foo");
+    assert_eq!(gv_as[1].to_bytes(), b"");
+    assert_eq!(gv_as[2].to_cstr().to_bytes(), b"foo");
+    assert_eq!(gv_as.len(), 3);
 
     // Insufficient space for structure framing offsets
     //assert_eq!(<gv!("(ayayayayay)")>::mark([0x03, 0x02, 0x01]), [[3], [2], [1], [], []]);

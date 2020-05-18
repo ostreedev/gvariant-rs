@@ -397,13 +397,22 @@ impl<'a, Item: GVariantMarker+NonFixedSize> Iterator for NonFixedSizeArrayIterat
         if self.offset_idx == self.slice.data.len() {
             None
         } else {
-            // TODO: Prove we're not reading beyond end
             let start = align(self.next_start, Item::ALIGNMENT);
             let end = read_uint(
                 &self.slice.data.as_ref()[self.offset_idx..], self.offset_size, 0);
             self.offset_idx += self.offset_size as usize;
             self.next_start = end;
-            Some(Item::try_mark(&self.slice.data[start..end]).unwrap())
+            if end < start || end >= self.slice.data.len() {
+                // If the framing offsets (or calculations based on them)
+                // indicate that any part of the byte sequence of a child value
+                // would fall outside of the byte sequence of the parent then
+                // the child is given the default value for its type.
+                //
+                // TODO: This empty string is not guaranteed to be aligned
+                Some(Item::try_mark(b"").unwrap())
+            } else {
+                Some(Item::try_mark(&self.slice.data[start..end]).unwrap())
+            }
         }
     }
 }
@@ -431,7 +440,7 @@ impl<T: GVariantMarker + NonFixedSize> core::ops::Index<usize>
             x => align(read_uint(frame_offsets, osz, x - 1),
                               T::ALIGNMENT),
         };
-        if start < self.data.len() && end < self.data.len() || start <= end {
+        if start < self.data.len() && end < self.data.len() && start <= end {
             T::try_mark(&self.data.as_ref()[start..end]).unwrap()
         } else {
             // Start or End Boundary of a Child Falls Outside the Container
@@ -440,7 +449,9 @@ impl<T: GVariantMarker + NonFixedSize> core::ops::Index<usize>
             // that any part of the byte sequence of a child value would fall
             // outside of the byte sequence of the parent then the child is given
             // the default value for its type.
-            todo!()
+            //
+            // TODO: This empty string is not guaranteed to be aligned
+            T::try_mark(b"").unwrap()
         }
     }
 }
