@@ -30,7 +30,6 @@ pub mod marker {
         type SizeType : SizeType;
     }
     pub trait FixedSize {
-        const SIZE : usize;
         type Array;
     }
     pub trait NonFixedSize {}
@@ -45,7 +44,6 @@ pub mod marker {
                 const SIZE : Option<usize> = Some($size);
             }
             impl FixedSize for $name {
-                const SIZE : usize = $size;
                 type Array = [u8;$size];
             }
         };
@@ -559,7 +557,7 @@ impl Slice<MarkerCsi7> {
 
         (
             marker::S::mark(&self.data[frame_0]).to_rs(),
-            marker::I::try_mark(&self.data[frame_1.start..frame_1.start+<marker::I as marker::FixedSize>::SIZE]).unwrap().to_rs_ref(),
+            marker::I::try_mark(&self.data[frame_1.start..frame_1.start+marker::I::SIZE.unwrap()]).unwrap().to_rs_ref(),
         )
     }
 }
