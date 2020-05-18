@@ -7,7 +7,7 @@ mod type_parser;
 use type_parser::GVariantType;
 
 #[proc_macro]
-pub fn gvariant(input: TokenStream) -> TokenStream {
+pub fn gv(input: TokenStream) -> TokenStream {
     let arg = input.into_iter().next().expect("Missing argument");
     let gv;
     if let proc_macro::TokenTree::Literal(lit) = arg {

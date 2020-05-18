@@ -2,12 +2,12 @@ use std::{convert::TryInto, ffi::CStr, fmt::{Display, Debug}, error::Error};
 
 use ref_cast::RefCast;
 
-mod aligned_bytes;
-use aligned_bytes::align;
+pub mod aligned_bytes;
+pub use aligned_bytes::align;
 
 mod casting;
 
-mod marker {
+pub mod marker {
     use ref_cast::RefCast;
     use super::aligned_bytes::{AsAligned, TryAsAligned, Misaligned};
 
@@ -463,7 +463,7 @@ impl<T: GVariantMarker + NonFixedSize> core::ops::Index<usize>
 
 impl<T: GVariantMarker>  Slice<marker::M::<T>>
 {
-    fn to_option(&self) -> Option<&Slice<T>> {
+    pub fn to_option(&self) -> Option<&Slice<T>> {
         if let Some(size) = T::SIZE {
             // 2.5.2.1 Maybe of a Fixed-Sized Element
             //
