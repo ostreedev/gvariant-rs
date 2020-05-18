@@ -75,9 +75,11 @@ The spec says:
 > be the part of the string that precedes the embedded nul. This means that
 > obtaining a C pointer to a string is still a constant time operation.
 
-In this implementation embedded NULs are preserved in strings.  This is because
-we represent strings as `&[u8]` and conforming to the spec would involve
-scanning the data for the NUL terminator.
+In this implementation embedded NULs are preserved in strings when converting to
+&[u8] with to_bytes().  This is because rust represents strings as `&[u8]` and
+conforming to the spec would involve scanning the data for the NUL terminator.
+For conformant behaviour use `.to_cstr().to_bytes()`.  Note however this is not
+a constant-time operation and a scan of the string is necessary.
 
 ## Design
 

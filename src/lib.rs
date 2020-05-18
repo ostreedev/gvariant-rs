@@ -1,4 +1,4 @@
-use std::{convert::TryInto, fmt::{Display, Debug}, error::Error};
+use std::{convert::TryInto, ffi::CStr, fmt::{Display, Debug}, error::Error};
 
 use ref_cast::RefCast;
 
@@ -223,6 +223,14 @@ macro_rules! string {
                     Some(b'\0') => { &d[..d.len() - 1] }
                     _ => b""
                 }
+            }
+            pub fn to_cstr(&self) -> &CStr {
+                let mut d : &[u8] = self.data.as_ref();
+                match d.last() {
+                    Some(b'\0') => {},
+                    _ => {d = b"\0";}
+                }
+                CStr::from_bytes_with_nul(&d[..=d.into_iter().position(|x| *x == b'\0').unwrap()]).unwrap()
             }
             pub fn try_as_mut(&mut self) -> Result<&mut [u8], NonNormal> {
                 let d : &mut [u8] = self.data.as_mut();
