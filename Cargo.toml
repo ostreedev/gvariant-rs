@@ -1,5 +1,5 @@
 [package]
-name = "gvariant-rs"
+name = "gvariant"
 version = "0.1.0"
 authors = ["William Manley <will@stb-tester.com>"]
 edition = "2018"
