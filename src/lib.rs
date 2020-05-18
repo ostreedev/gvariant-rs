@@ -112,11 +112,6 @@ pub trait RustType : marker::GVariantMarker {
     fn default_ref() -> &'static Self::RefType;
 }
 
-trait ToRs {
-    type ValueType;
-    fn to_rs(&self) -> Self::ValueType;
-}
-
 use casting::{try_cast_slice_to, try_cast_slice_to_mut};
 
 macro_rules! impl_rusttype_for_marker {
@@ -163,9 +158,8 @@ macro_rules! impl_fixed_size_to_rs_ref {
 }
 macro_rules! impl_to_rs_for_to_rs_ref {
     ($marker:ident, $RustType:ty, $alignment:ident, $size:literal) => {
-        impl ToRs for Slice<marker::$marker> {
-            type ValueType = $RustType;
-            fn to_rs(&self) -> $RustType {
+        impl Slice<marker::$marker> {
+            pub fn to_rs(&self) -> $RustType {
                 *self.to_rs_ref()
             }
         }
