@@ -1,6 +1,6 @@
 use std::{fmt::Display, error::Error, convert::TryInto};
 
-use crate::aligned_bytes::align;
+use crate::aligned_bytes;
 use crate::aligned_bytes::{is_aligned, AlignedSlice};
 
 pub unsafe trait AllBitPatternsValid {
@@ -17,7 +17,7 @@ pub unsafe trait AllBitPatternsValid {
 // It would be nice to be able to use std::mem::align_of<T>(), but we need it in
 // trait bounds, so that'll have to wait until const generics:
 pub unsafe trait AlignOf {
-    type AlignOf : align::Alignment;
+    type AlignOf : aligned_bytes::Alignment;
 }
 
 #[derive(Debug)]
@@ -29,7 +29,7 @@ impl Display for WrongSize{
     }
 }
 
-pub(crate) fn cast_slice<'a, A:align::Alignment, T: AllBitPatternsValid>(a: &'a AlignedSlice<A>) -> Result<&'a [T], WrongSize> {
+pub(crate) fn cast_slice<'a, A:aligned_bytes::Alignment, T: AllBitPatternsValid>(a: &'a AlignedSlice<A>) -> Result<&'a [T], WrongSize> {
     // This function requires the data to already have suitable alignment.  This
     // should be compiled out:
     if A::ALIGNMENT < std::mem::align_of::<T>() {
@@ -52,7 +52,7 @@ pub(crate) fn cast_slice<'a, A:align::Alignment, T: AllBitPatternsValid>(a: &'a 
     }
 }
 
-pub(crate) fn try_cast_slice_to<'a, A:align::Alignment, T:AlignOf+AllBitPatternsValid>(s : &'a AlignedSlice<A>) -> Result<&'a T, WrongSize>
+pub(crate) fn try_cast_slice_to<'a, A:aligned_bytes::Alignment, T:AlignOf+AllBitPatternsValid>(s : &'a AlignedSlice<A>) -> Result<&'a T, WrongSize>
 {
     if std::mem::size_of::<T>() == s.len() {
         debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
@@ -62,7 +62,7 @@ pub(crate) fn try_cast_slice_to<'a, A:align::Alignment, T:AlignOf+AllBitPatterns
     }
 }
 
-pub(crate) fn try_cast_slice_to_mut<'a, A:align::Alignment, T:AlignOf+AllBitPatternsValid>(s : &'a mut AlignedSlice<A>) -> Result<&'a mut T, WrongSize>
+pub(crate) fn try_cast_slice_to_mut<'a, A:aligned_bytes::Alignment, T:AlignOf+AllBitPatternsValid>(s : &'a mut AlignedSlice<A>) -> Result<&'a mut T, WrongSize>
 {
     if std::mem::size_of::<T>() == s.len() {
         debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
@@ -76,7 +76,7 @@ macro_rules! unsafe_fixed_bytes_to_type {
     // This macro is unsafe.  It's only permitted to call it with types where
     // all possible bit patterns are valid.  If you don't get the size and
     // alignment right the implemented trait methods will panic at run-time
-    ($type:ident, $size:literal, $align:ident) => {
+    ($type:ident, $size:literal, $align:ty) => {
         unsafe impl AllBitPatternsValid for $type {}
         /*impl AsRef<$type> for AlignedSlice<align::$align, [u8;$size]> {
             fn as_ref(&self) -> &$type {
@@ -93,9 +93,9 @@ macro_rules! unsafe_fixed_bytes_to_type {
             }
         }*/
         unsafe impl AlignOf for $type {
-            type AlignOf = align::$align;
+            type AlignOf = $align;
         }
-        impl<'a> TryInto<&'a [$type]> for &'a AlignedSlice<align::$align> {
+        impl<'a> TryInto<&'a [$type]> for &'a AlignedSlice<$align> {
             type Error = WrongSize;
             fn try_into(self) -> Result<&'a [$type], Self::Error> {
                 cast_slice(self)
@@ -104,11 +104,11 @@ macro_rules! unsafe_fixed_bytes_to_type {
     };
 }
 
-unsafe_fixed_bytes_to_type!(u8, 1, A1);
-unsafe_fixed_bytes_to_type!(i16, 2, A2);
-unsafe_fixed_bytes_to_type!(u16, 2, A2);
-unsafe_fixed_bytes_to_type!(i32, 4, A4);
-unsafe_fixed_bytes_to_type!(u32, 4, A4);
-unsafe_fixed_bytes_to_type!(i64, 8, A8);
-unsafe_fixed_bytes_to_type!(u64, 8, A8);
-unsafe_fixed_bytes_to_type!(f64, 8, A8);
+unsafe_fixed_bytes_to_type!(u8, 1, aligned_bytes::A1);
+unsafe_fixed_bytes_to_type!(i16, 2, aligned_bytes::A2);
+unsafe_fixed_bytes_to_type!(u16, 2, aligned_bytes::A2);
+unsafe_fixed_bytes_to_type!(i32, 4, aligned_bytes::A4);
+unsafe_fixed_bytes_to_type!(u32, 4, aligned_bytes::A4);
+unsafe_fixed_bytes_to_type!(i64, 8, aligned_bytes::A8);
+unsafe_fixed_bytes_to_type!(u64, 8, aligned_bytes::A8);
+unsafe_fixed_bytes_to_type!(f64, 8, aligned_bytes::A8);

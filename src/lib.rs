@@ -3,7 +3,7 @@ use std::{convert::TryInto, ffi::CStr, fmt::{Display, Debug}, error::Error};
 use ref_cast::RefCast;
 
 pub mod aligned_bytes;
-pub use aligned_bytes::align;
+use aligned_bytes::{AlignedSlice, AlignedTo};
 
 mod casting;
 
@@ -18,7 +18,7 @@ pub mod marker {
     impl SizeType for NonFixed {}
 
     pub trait GVariantMarker : Sized {
-        type Alignment : super::aligned_bytes::align::Alignment;
+        type Alignment : super::aligned_bytes::Alignment;
         const ALIGNMENT : usize = std::mem::align_of::<Self::Alignment>();
         fn mark<'a, Data: AsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> &'a super::Slice<Self> {
             super::Slice::<Self>::ref_cast(data.as_aligned())
@@ -39,7 +39,7 @@ pub mod marker {
             #[derive(Debug)]
             pub struct $name {}
             impl GVariantMarker for $name {
-                type Alignment = super::aligned_bytes::align::$alignment;
+                type Alignment = super::aligned_bytes::$alignment;
                 type SizeType = Fixed;
                 const SIZE : Option<usize> = Some($size);
             }
@@ -53,7 +53,7 @@ pub mod marker {
             #[derive(Debug)]
             pub struct $name {}
             impl GVariantMarker for $name {
-                type Alignment = super::aligned_bytes::align::$alignment;
+                type Alignment = super::aligned_bytes::$alignment;
                 type SizeType = NonFixed;
                 const SIZE : Option<usize> = None;
             }
@@ -275,7 +275,7 @@ impl Error for NonNormal {}
 use casting::AllBitPatternsValid;
 
 impl<T:GVariantMarker + marker::FixedSize + RustType> Slice<marker::A<T>>
-    where <marker::A::<T> as GVariantMarker>::Alignment : align::AlignedTo<T::Alignment>,
+    where <marker::A::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>,
         T::RefType : Sized + AllBitPatternsValid
 {
     pub fn to_rs(&self) -> &[T::RefType] {
@@ -505,7 +505,7 @@ impl<T: GVariantMarker>  Slice<marker::M::<T>>
 }
 
 impl<'a, T: GVariantMarker> From<&'a Slice<marker::M<T>>> for Option<&'a Slice<T>> 
-    where <marker::M::<T> as GVariantMarker>::Alignment : align::AlignedTo<T::Alignment>
+    where <marker::M::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>
 {
     fn from(m: &'a Slice<marker::M<T>>) -> Self {
         m.to_option()
@@ -513,7 +513,7 @@ impl<'a, T: GVariantMarker> From<&'a Slice<marker::M<T>>> for Option<&'a Slice<T
 }
 
 impl<T: GVariantMarker> PartialEq for Slice<marker::M::<T>>
-    where Slice<T>:PartialEq, <marker::M::<T> as GVariantMarker>::Alignment : align::AlignedTo<T::Alignment>
+    where Slice<T>:PartialEq, <marker::M::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>
 {
     fn eq(&self, other: &Self) -> bool {
         self.to_option() == other.to_option()
@@ -545,7 +545,7 @@ fn nth_last_frame_offset(data:&[u8], osz: OffsetSize, n:usize) -> usize {
 #[derive(Debug)]
 struct MarkerCsi7{}
 impl marker::GVariantMarker for MarkerCsi7 {
-    type Alignment = align::A4;
+    type Alignment = aligned_bytes::A4;
     type SizeType = marker::NonFixed;
     const SIZE : Option<usize> = None;
 }
@@ -570,7 +570,7 @@ impl Slice<MarkerCsi7> {
 #[derive(Debug)]
 struct MarkerCys7{}
 impl marker::GVariantMarker for MarkerCys7 {
-    type Alignment = align::A1;
+    type Alignment = aligned_bytes::A1;
     type SizeType = marker::NonFixed;
     const SIZE : Option<usize> = None;
 }
@@ -589,7 +589,7 @@ impl Slice<MarkerCys7> {
 #[derive(Debug)]
 struct MarkerCCys7as7{}
 impl marker::GVariantMarker for MarkerCCys7as7 {
-    type Alignment = align::A1;
+    type Alignment = aligned_bytes::A1;
     type SizeType = marker::NonFixed;
     const SIZE : Option<usize> = None;
 }
@@ -619,7 +619,7 @@ mod tests {
 
     #[test]
     fn test_numbers() {
-        let aligned_slice = aligned_slice::<align::A8>(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let aligned_slice = aligned_slice::<aligned_bytes::A8>(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
         // If the size doesn't match exactly it should default to 0:
         assert_eq!(marker::I::mark(&aligned_slice[..0]).to_rs(), 0);
@@ -706,7 +706,7 @@ mod tests {
             [true, false, false, true, true]
         );
 
-        let data = aligned_slice::<align::A4>(b"foo\0\xff\xff\xff\xff\x04");
+        let data = aligned_slice::<aligned_bytes::A4>(b"foo\0\xff\xff\xff\xff\x04");
         let (s, i) = MarkerCsi7::mark(data.as_ref()).split();
         assert_eq!(s, &*b"foo");
         assert_eq!(*i, -1);
@@ -718,7 +718,7 @@ mod tests {
         // The example in the spec is missing the second array frame offset
         // `21`.  I've added it here giving me consistent results with the GLib
         // implmentation
-        let data = aligned_slice::<align::A4>(&[
+        let data = aligned_slice::<aligned_bytes::A4>(&[
             b'h', b'i', 0, 0, 0xfe, 0xff, 0xff, 0xff, 3, 0, 0, 0,
             b'b', b'y', b'e', 0, 0xff, 0xff, 0xff, 0xff, 4,
             9, 21]);
@@ -812,7 +812,7 @@ mod tests {
         );
     }
 
-    fn aligned_slice<A:align::Alignment>(data: &[u8]) -> Box<aligned_bytes::AlignedSlice<A>> {
+    fn aligned_slice<A:aligned_bytes::Alignment>(data: &[u8]) -> Box<aligned_bytes::AlignedSlice<A>> {
         let mut out = aligned_bytes::alloc_aligned(data.len());
         out.as_mut().copy_from_slice(data);
         out
