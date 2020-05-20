@@ -10,8 +10,8 @@ pub unsafe trait Alignment : Debug {
 // for e.g. pointer casts
 pub unsafe trait AlignedTo<T:Alignment> : Alignment {}
 
-/// 1-byte alignment e.g. no alignment
-#[derive(Debug)]
+// 1-byte alignment e.g. no alignment
+#[derive(Debug,Copy,Clone)]
 pub struct A1;
 unsafe impl Alignment for A1 {
     const ALIGNMENT : usize = 1;
@@ -20,7 +20,7 @@ unsafe impl AlignedTo<A1> for A1 {}
 
 /// 2-byte alignment
 #[repr(align(2))]
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone)]
 pub struct A2;
 unsafe impl Alignment for A2 {
     const ALIGNMENT : usize = 2;
@@ -30,7 +30,7 @@ unsafe impl AlignedTo<A2> for A2 {}
 
 /// 4-byte alignment
 #[repr(align(4))]
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone)]
 pub struct A4;
 unsafe impl Alignment for A4 {
     const ALIGNMENT : usize = 4;
@@ -41,7 +41,7 @@ unsafe impl AlignedTo<A4> for A4 {}
 
 /// 8-byte alignment
 #[repr(align(8))]
-#[derive(Debug)]
+#[derive(Debug,Copy,Clone)]
 pub struct A8;
 unsafe impl Alignment for A8 {
     const ALIGNMENT : usize = 8;
