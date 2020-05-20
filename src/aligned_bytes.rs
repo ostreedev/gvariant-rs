@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Range, RangeTo, Index, RangeFull, RangeToInclusive, Deref, DerefMut, RangeFrom};
+use std::ops::{Range, RangeTo, Index, RangeFull, RangeToInclusive, Deref, DerefMut, RangeFrom, RangeInclusive};
 
 // This is unsafe because it must only be implemented for zero-sized types
 pub unsafe trait Alignment : Debug {
@@ -242,22 +242,8 @@ impl<FromA, ToA:Alignment> AsMut<AlignedSlice<ToA>> for AlignedSlice<FromA>
 impl<A : Alignment> Index<RangeTo<usize>> for AlignedSlice<A> {
     type Output = AlignedSlice<A>;
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
-        // Truncating the slice on the left doesn't affect the alignment
+        // Truncating the slice on the right doesn't affect the alignment
         unsafe {to_alignedslice_unchecked(&self.data[index])}
-    }
-}
-impl<A : Alignment> Index<Range<usize>> for AlignedSlice<A> {
-    type Output = AlignedSlice<A1>;
-    fn index(&self, index: Range<usize>) -> &Self::Output {
-        // Truncating the slice on the left doesn't affect the alignment
-        &self.data[index].as_aligned()
-    }
-}
-impl<A : Alignment> Index<RangeFrom<usize>> for AlignedSlice<A> {
-    type Output = AlignedSlice<A1>;
-    fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
-        // Truncating the slice on the left doesn't affect the alignment
-        &self.data[index].as_aligned()
     }
 }
 impl<A : Alignment> Index<RangeToInclusive<usize>> for AlignedSlice<A> {
@@ -265,6 +251,30 @@ impl<A : Alignment> Index<RangeToInclusive<usize>> for AlignedSlice<A> {
     fn index(&self, index: RangeToInclusive<usize>) -> &Self::Output {
         // Truncating the slice on the left doesn't affect the alignment
         unsafe {to_alignedslice_unchecked(&self.data[index])}
+    }
+}
+impl<A : Alignment> Index<Range<usize>> for AlignedSlice<A> {
+    type Output = AlignedSlice<A1>;
+    fn index(&self, index: Range<usize>) -> &Self::Output {
+        // Truncating the slice on the left can affect the alignment, so we
+        // return an unaligned slice here
+        &self.data[index].as_aligned()
+    }
+}
+impl<A : Alignment> Index<RangeInclusive<usize>> for AlignedSlice<A> {
+    type Output = AlignedSlice<A1>;
+    fn index(&self, index: RangeInclusive<usize>) -> &Self::Output {
+        // Truncating the slice on the left can affect the alignment, so we
+        // return an unaligned slice here
+        &self.data[index].as_aligned()
+    }
+}
+impl<A : Alignment> Index<RangeFrom<usize>> for AlignedSlice<A> {
+    type Output = AlignedSlice<A1>;
+    fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
+        // Truncating the slice on the left can affect the alignment, so we
+        // return an unaligned slice here
+        &self.data[index].as_aligned()
     }
 }
 impl<A : Alignment> Index<RangeFull> for AlignedSlice<A> {
