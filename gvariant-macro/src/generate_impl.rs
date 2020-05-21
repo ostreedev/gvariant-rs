@@ -8,6 +8,12 @@ pub(crate) fn generate_types(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>
     let mut code: Vec<u8> = vec![];
     let name = "Structure".to_owned() + escape(spec.to_string()).as_ref();
     let alignment = align_of(&spec);
+    let size = size_of(&spec);
+    let sizedtrait = if size.is_some() {
+        "FixedSize"
+    } else {
+        "NonFixedSize"
+    };
     write!(code, "
 mod _gvariant_macro {{
     #[macro_use]
@@ -22,12 +28,12 @@ mod _gvariant_macro {{
     }}
     impl GVariantMarker for {name} {{
         type Alignment = ::gvariant::aligned_bytes::A{alignment};
-        const SIZE: Option<usize> = None;
+        const SIZE: Option<usize> = {size:?};
         fn _mark(data: &::gvariant::aligned_bytes::AlignedSlice<Self::Alignment>) -> &Self {{
             Self::ref_cast(data.as_ref())
         }}
     }}
-    impl ::gvariant::marker::NonFixedSize for {name} {{}}
+    impl ::gvariant::marker::{sizedtrait} for {name} {{}}
     impl {name} {{
         const N_FRAME_OFFSETS: usize = 1;
         pub fn split(&self) -> (&[u8], &i32) {{
@@ -47,7 +53,7 @@ mod _gvariant_macro {{
         }}
     }}
 }}
-", name=name, alignment=alignment)?;
+", name=name, alignment=alignment, size=size, sizedtrait=sizedtrait)?;
     Ok(String::from_utf8(code)?)
 }
 
@@ -93,6 +99,60 @@ fn align_of(t: &GVariantType) -> usize {
     }
 }
 
+fn size_of(t: &GVariantType) -> Option<usize> {
+    match t {
+        GVariantType::B => Some(1),
+        GVariantType::Y => Some(1),
+        GVariantType::N => Some(2),
+        GVariantType::Q => Some(2),
+        GVariantType::I => Some(4),
+        GVariantType::U => Some(4),
+        GVariantType::X => Some(8),
+        GVariantType::T => Some(8),
+        GVariantType::D => Some(8),
+        GVariantType::S
+        | GVariantType::O
+        | GVariantType::G
+        | GVariantType::V
+        | GVariantType::A(_)
+        | GVariantType::M(_) => None,
+        GVariantType::Tuple(subtypes) => {
+            let mut pos: usize = 0;
+            if subtypes.is_empty() {
+                // the fixed size must be non-zero. This case would only occur
+                // for structures of the unit type or structures containing
+                // only such structures (recursively). This problem issolved by
+                // arbitrary declaring that the serialised encoding of an
+                // instance of the unit typeis a single zero byte (size 1).
+                return Some(1);
+            }
+            for t in subtypes {
+                pos = align(pos, align_of(t));
+                match size_of(t) {
+                    Some(s) => pos += s,
+                    None => return None,
+                }
+            }
+            // the fixed sized must be a multiple of the alignment of the
+            // structure. This is accomplished by adding zero-filled padding
+            // bytes to the end of any fixed-width structure until this
+            // property becomes true.
+            pos = align(pos, align_of(t));
+            Some(pos)
+        }
+        GVariantType::DictItem(x) => match (size_of(&x[0]), size_of(&x[1])) {
+            (Some(a), Some(b)) => {
+                let mut pos = a;
+                pos = align(pos, align_of(&x[1]));
+                pos += b;
+                pos = align(pos, align_of(&t));
+                Some(pos)
+            }
+            _ => None,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +163,15 @@ mod tests {
         assert_eq!(align_of(&one(b"i").unwrap()), 4);
         assert_eq!(align_of(&one(b"(uy)").unwrap()), 4);
         assert_eq!(align_of(&one(b"(ti)").unwrap()), 8);
+    }
+
+    #[test]
+    fn test_size() {
+        assert_eq!(size_of(&one(b"s").unwrap()), None);
+        assert_eq!(size_of(&one(b"i").unwrap()), Some(4));
+        assert_eq!(size_of(&one(b"a(uu)").unwrap()), None);
+        assert_eq!(size_of(&one(b"(uu)").unwrap()), Some(8));
+        assert_eq!(size_of(&one(b"(uy)").unwrap()), Some(8));
+        assert_eq!(size_of(&one(b"(ti)").unwrap()), Some(16));
     }
 }

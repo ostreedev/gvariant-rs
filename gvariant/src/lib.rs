@@ -30,9 +30,7 @@ pub mod marker {
         }
         fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self;
     }
-    pub trait FixedSize {
-        type Array;
-    }
+    pub trait FixedSize {}
     pub trait NonFixedSize {}
 
     macro_rules! fixed_size_marker {
@@ -49,9 +47,7 @@ pub mod marker {
                     Self::ref_cast(data.as_ref())
                 }
             }
-            impl FixedSize for $name {
-                type Array = [u8; $size];
-            }
+            impl FixedSize for $name {}
         };
     }
     macro_rules! non_fixed_size_marker {
