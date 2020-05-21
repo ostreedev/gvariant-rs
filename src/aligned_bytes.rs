@@ -358,3 +358,13 @@ impl<A:Alignment> AsMut<[u8]> for AlignedSlice<A> {
         &mut self.data
     }
 }
+
+fn align_bytes<'a, A:Alignment>(value : &'a[u8]) -> &'a AlignedSlice<A>
+{
+    let p = value as *const [u8] as *const u8 as usize;
+    let offset = p.wrapping_neg() & (A::ALIGNMENT - 1);
+    value[offset..].try_as_aligned().unwrap()
+}
+pub fn empty_aligned<A:Alignment>() -> &'static AlignedSlice<A> {
+    &align_bytes(b"        ")[..1]
+}

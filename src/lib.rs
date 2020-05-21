@@ -384,7 +384,7 @@ pub struct NonFixedSizeArrayIterator<'a, Item: GVariantMarker + NonFixedSize> {
     offset_idx: usize,
     offset_size: OffsetSize,
 }
-impl<'a, Item: GVariantMarker+NonFixedSize> Iterator for NonFixedSizeArrayIterator<'a, Item> {
+impl<'a, Item: GVariantMarker+NonFixedSize + 'static> Iterator for NonFixedSizeArrayIterator<'a, Item> {
     type Item = &'a Slice<Item>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset_idx == self.slice.data.len() {
@@ -400,9 +400,7 @@ impl<'a, Item: GVariantMarker+NonFixedSize> Iterator for NonFixedSizeArrayIterat
                 // indicate that any part of the byte sequence of a child value
                 // would fall outside of the byte sequence of the parent then
                 // the child is given the default value for its type.
-                //
-                // TODO: This empty string is not guaranteed to be aligned
-                Some(Item::try_mark(b"").unwrap())
+                Some(Item::_mark(aligned_bytes::empty_aligned()))
             } else {
                 Some(Item::try_mark(&self.slice.data[start..end]).unwrap())
             }
@@ -410,7 +408,7 @@ impl<'a, Item: GVariantMarker+NonFixedSize> Iterator for NonFixedSizeArrayIterat
     }
 }
 
-impl<'a, T:GVariantMarker + NonFixedSize> IntoIterator for &'a Slice<marker::A<T>> 
+impl<'a, T:GVariantMarker + NonFixedSize + 'static> IntoIterator for &'a Slice<marker::A<T>>
 {
     type Item = &'a Slice<T>;
     type IntoIter = NonFixedSizeArrayIterator<'a, T>;
@@ -420,10 +418,10 @@ impl<'a, T:GVariantMarker + NonFixedSize> IntoIterator for &'a Slice<marker::A<T
             slice:self, next_start:0, offset_idx:lfo, offset_size:osz}
     }
 }
-impl<T: GVariantMarker + NonFixedSize> core::ops::Index<usize>
-    for Slice<marker::A<T>>
+impl<Item: GVariantMarker + NonFixedSize + 'static> core::ops::Index<usize>
+    for Slice<marker::A<Item>>
 {
-    type Output = Slice<T>;
+    type Output = Slice<Item>;
     fn index(&self, index: usize) -> &Self::Output {
         let (osz, lfo) = read_last_frame_offset(&self.data);
         let frame_offsets = &self.data.as_ref()[lfo..];
@@ -442,9 +440,7 @@ impl<T: GVariantMarker + NonFixedSize> core::ops::Index<usize>
             // that any part of the byte sequence of a child value would fall
             // outside of the byte sequence of the parent then the child is given
             // the default value for its type.
-            //
-            // TODO: This empty string is not guaranteed to be aligned
-            T::try_mark(b"").unwrap()
+            Item::_mark(aligned_bytes::empty_aligned())
         }
     }
 }
