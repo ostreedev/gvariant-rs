@@ -12,23 +12,16 @@ pub mod marker {
     use ref_cast::RefCast;
     use super::aligned_bytes::{AsAligned, TryAsAligned, Misaligned};
 
-    pub trait SizeType {}
-    pub struct Fixed;
-    impl SizeType for Fixed {}
-    pub struct NonFixed;
-    impl SizeType for NonFixed {}
-
     pub trait GVariantMarker : Sized {
         type Alignment : super::aligned_bytes::Alignment;
         const ALIGNMENT : usize = std::mem::align_of::<Self::Alignment>();
+        const SIZE : Option<usize>;
         fn mark<'a, Data: AsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> &'a super::Slice<Self> {
             super::Slice::<Self>::ref_cast(data.as_aligned())
         }
         fn try_mark<'a, Data: TryAsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> Result<&'a super::Slice<Self>, Misaligned> {
             Ok(super::Slice::<Self>::ref_cast(data.try_as_aligned()?))
         }
-        const SIZE : Option<usize>;
-        type SizeType : SizeType;
     }
     pub trait FixedSize {
         type Array;
@@ -41,7 +34,6 @@ pub mod marker {
             pub struct $name {}
             impl GVariantMarker for $name {
                 type Alignment = super::aligned_bytes::$alignment;
-                type SizeType = Fixed;
                 const SIZE : Option<usize> = Some($size);
             }
             impl FixedSize for $name {
@@ -55,7 +47,6 @@ pub mod marker {
             pub struct $name {}
             impl GVariantMarker for $name {
                 type Alignment = super::aligned_bytes::$alignment;
-                type SizeType = NonFixed;
                 const SIZE : Option<usize> = None;
             }
 
@@ -84,7 +75,6 @@ pub mod marker {
     }
     impl<T:GVariantMarker> GVariantMarker for M<T> {
         type Alignment = T::Alignment;
-        type SizeType = NonFixed;
         const SIZE : Option<usize> = None;
     }
     impl<T:GVariantMarker> NonFixedSize for M<T> {}
@@ -95,7 +85,6 @@ pub mod marker {
     }
     impl<T:GVariantMarker> GVariantMarker for A<T> {
         type Alignment = T::Alignment;
-        type SizeType = NonFixed;
         const SIZE : Option<usize> = None;
     }
     impl<T:GVariantMarker> NonFixedSize for A<T> {}
@@ -547,7 +536,6 @@ fn nth_last_frame_offset(data:&[u8], osz: OffsetSize, n:usize) -> usize {
 struct MarkerCsi7{}
 impl marker::GVariantMarker for MarkerCsi7 {
     type Alignment = aligned_bytes::A4;
-    type SizeType = marker::NonFixed;
     const SIZE : Option<usize> = None;
 }
 impl marker::NonFixedSize for MarkerCsi7 {}
@@ -572,7 +560,6 @@ impl Slice<MarkerCsi7> {
 struct MarkerCys7{}
 impl marker::GVariantMarker for MarkerCys7 {
     type Alignment = aligned_bytes::A1;
-    type SizeType = marker::NonFixed;
     const SIZE : Option<usize> = None;
 }
 impl marker::NonFixedSize for MarkerCys7 {}
@@ -591,7 +578,6 @@ impl Slice<MarkerCys7> {
 struct MarkerCCys7as7{}
 impl marker::GVariantMarker for MarkerCCys7as7 {
     type Alignment = aligned_bytes::A1;
-    type SizeType = marker::NonFixed;
     const SIZE : Option<usize> = None;
 }
 impl marker::NonFixedSize for MarkerCCys7as7 {}
