@@ -3,7 +3,7 @@ use std::{convert::TryInto, ffi::CStr, fmt::{Display, Debug}, error::Error};
 use ref_cast::RefCast;
 
 pub mod aligned_bytes;
-use aligned_bytes::{AlignedSlice, AlignedTo};
+use aligned_bytes::{AlignedSlice, AlignedTo, A4};
 use offset::align_offset;
 
 mod casting;
@@ -11,18 +11,16 @@ mod offset;
 
 pub mod marker {
     use ref_cast::RefCast;
-    use super::aligned_bytes::{AlignedSlice, AsAligned, TryAsAligned, Misaligned};
+    use super::aligned_bytes::{AlignedSlice, Alignment, AsAligned, TryAsAligned, Misaligned};
 
-    pub trait GVariantMarker : Sized {
-        type Alignment : super::aligned_bytes::Alignment;
+    pub trait GVariantMarker {
+        type Alignment : Alignment;
         const ALIGNMENT : usize = std::mem::align_of::<Self::Alignment>();
         const SIZE : Option<usize>;
-        fn mark<'a, Data: AsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> &'a super::Slice<Self> {
+        fn mark<'a, Data: AsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> &'a Self {
             Self::_mark(data.as_aligned())
         }
-        fn _mark(data: &AlignedSlice<Self::Alignment>) -> &super::Slice<Self> {
-            super::Slice::<Self>::ref_cast(data)
-        }
+        fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self;
     }
     pub trait FixedSize {
         type Array;
@@ -31,11 +29,17 @@ pub mod marker {
 
     macro_rules! fixed_size_marker {
         ($name:ident, $alignment:ident, $size:literal) => {
-            #[derive(Debug)]
-            pub struct $name {}
+            #[derive(RefCast,Debug)]
+            #[repr(transparent)]
+            pub struct $name {
+                pub data : super::aligned_bytes::AlignedSlice<super::aligned_bytes::$alignment>,
+            }
             impl GVariantMarker for $name {
                 type Alignment = super::aligned_bytes::$alignment;
                 const SIZE : Option<usize> = Some($size);
+                fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self {
+                    Self::ref_cast(data.as_ref())
+                }
             }
             impl FixedSize for $name {
                 type Array = [u8;$size];
@@ -44,11 +48,17 @@ pub mod marker {
     }
     macro_rules! non_fixed_size_marker {
         ($name:ident, $alignment:ident) => {
-            #[derive(Debug)]
-            pub struct $name {}
+            #[derive(RefCast,Debug)]
+            #[repr(transparent)]
+            pub struct $name {
+                pub data : AlignedSlice<super::aligned_bytes::$alignment>,
+            }
             impl GVariantMarker for $name {
                 type Alignment = super::aligned_bytes::$alignment;
                 const SIZE : Option<usize> = None;
+                fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self {
+                    Self::ref_cast(data.as_ref())
+                }
             }
 
             impl NonFixedSize for $name {}
@@ -70,32 +80,37 @@ pub mod marker {
     non_fixed_size_marker!(G, A1);  // str
     non_fixed_size_marker!(V, A8);  // Variant
 
-    #[derive(Debug)]
-    pub struct M<T:GVariantMarker> {  // Option<T>
-        item : std::marker::PhantomData<T>
+    #[derive(Debug,RefCast)]
+    #[repr(transparent)]
+    pub struct M<T:GVariantMarker + ?Sized> {  // Option<T>
+        item : std::marker::PhantomData<T>,
+        pub data : super::aligned_bytes::AlignedSlice<T::Alignment>,
     }
-    impl<T:GVariantMarker> GVariantMarker for M<T> {
-        type Alignment = T::Alignment;
+    impl<Item:GVariantMarker + ?Sized> GVariantMarker for M<Item> {
+        type Alignment = Item::Alignment;
         const SIZE : Option<usize> = None;
+        fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self
+        {
+            Self::ref_cast(data)
+        }
     }
-    impl<T:GVariantMarker> NonFixedSize for M<T> {}
+    impl<T:GVariantMarker + ?Sized> NonFixedSize for M<T> {}
 
-    #[derive(Debug)]
-    pub struct A<T:GVariantMarker> {  // [T]
-        item : std::marker::PhantomData<T>
+    #[derive(Debug,RefCast)]
+    #[repr(transparent)]
+    pub struct A<T:GVariantMarker + ?Sized> {  // [T]
+        item : std::marker::PhantomData<T>,
+        pub data : super::aligned_bytes::AlignedSlice<T::Alignment>,
     }
-    impl<T:GVariantMarker> GVariantMarker for A<T> {
-        type Alignment = T::Alignment;
+    impl<Item:GVariantMarker + ?Sized> GVariantMarker for A<Item> {
+        type Alignment = Item::Alignment;
         const SIZE : Option<usize> = None;
+        fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self
+        {
+            Self::ref_cast(data)
+        }
     }
-    impl<T:GVariantMarker> NonFixedSize for A<T> {}
-}
-
-#[repr(C)]
-#[derive(RefCast, Debug)]
-pub struct Slice<Marker:marker::GVariantMarker> {
-    gv_type : std::marker::PhantomData<Marker>,
-    data : aligned_bytes::AlignedSlice<Marker::Alignment>,
+    impl<T:GVariantMarker + ?Sized> NonFixedSize for A<T> {}
 }
 
 pub trait RustType : marker::GVariantMarker {
@@ -131,7 +146,7 @@ macro_rules! impl_fixed_size_rusttype_for_marker {
 }
 macro_rules! impl_fixed_size_to_rs_ref {
     ($marker:ident, $RefType:ty, $default:expr, $alignment:ident, $size:literal) => {
-        impl Slice<marker::$marker> {
+        impl marker::$marker {
             pub fn to_rs_ref(&self) -> &$RefType {
                 match try_cast_slice_to(&self.data) {
                     Err(_) => &$default,
@@ -149,7 +164,7 @@ macro_rules! impl_fixed_size_to_rs_ref {
 }
 macro_rules! impl_to_rs_for_to_rs_ref {
     ($marker:ident, $RustType:ty, $alignment:ident, $size:literal) => {
-        impl Slice<marker::$marker> {
+        impl marker::$marker {
             pub fn to_rs(&self) -> $RustType {
                 *self.to_rs_ref()
             }
@@ -158,7 +173,7 @@ macro_rules! impl_to_rs_for_to_rs_ref {
 }
 
 impl_fixed_size_to_rs_ref!(B, u8, 0, A1, 1);
-impl Slice<marker::B> {
+impl marker::B {
     pub fn to_rs(&self) -> bool {
         *self.to_rs_ref() != 0
     }
@@ -196,7 +211,7 @@ impl Display for WrongSize {
 
 macro_rules! string {
     ($marker:ident) => {
-        impl Slice<marker::$marker> {
+        impl marker::$marker {
             pub fn to_rs(&self) -> &[u8] {
                 self.to_bytes()
             }
@@ -227,7 +242,7 @@ macro_rules! string {
                 }
             }
         }
-        impl PartialEq for Slice<marker::$marker> {
+        impl PartialEq for marker::$marker {
             fn eq(&self, other: &Self) -> bool {
                 self.to_bytes() == other.to_bytes()
             }
@@ -265,7 +280,7 @@ impl Error for NonNormal {}
 
 use casting::AllBitPatternsValid;
 
-impl<T:GVariantMarker + marker::FixedSize + RustType> Slice<marker::A<T>>
+impl<T:GVariantMarker + marker::FixedSize + RustType + ?Sized> marker::A<T>
     where <marker::A::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>,
         T::RefType : Sized + AllBitPatternsValid
 {
@@ -350,7 +365,7 @@ fn read_last_frame_offset(data: &[u8]) -> (OffsetSize, usize)
 
 // Non-fixed width arrays
 
-impl<T: marker::GVariantMarker + marker::NonFixedSize> Slice<marker::A<T>> {
+impl<T: marker::GVariantMarker + marker::NonFixedSize + ?Sized> marker::A<T> {
     // Problem: Non-Sense Length for Non-Fixed Width Array
     //
     // In the event that the final framing offset of a non-fixed-width array
@@ -376,14 +391,15 @@ impl<T: marker::GVariantMarker + marker::NonFixedSize> Slice<marker::A<T>> {
         }
     }
 }
-pub struct NonFixedSizeArrayIterator<'a, Item: GVariantMarker + NonFixedSize> {
-    slice: &'a Slice<marker::A<Item>>,
+pub struct NonFixedSizeArrayIterator<'a, Item: GVariantMarker + NonFixedSize + ?Sized> {
+    slice: &'a marker::A<Item>,
     next_start: usize,
     offset_idx: usize,
     offset_size: OffsetSize,
 }
-impl<'a, Item: GVariantMarker+NonFixedSize + 'static> Iterator for NonFixedSizeArrayIterator<'a, Item> {
-    type Item = &'a Slice<Item>;
+impl<'a, Item: GVariantMarker+NonFixedSize+'static+?Sized> Iterator for NonFixedSizeArrayIterator<'a, Item>
+{
+    type Item = &'a Item;
     fn next(&mut self) -> Option<Self::Item> {
         if self.offset_idx == self.slice.data.len() {
             None
@@ -406,20 +422,20 @@ impl<'a, Item: GVariantMarker+NonFixedSize + 'static> Iterator for NonFixedSizeA
     }
 }
 
-impl<'a, T:GVariantMarker + NonFixedSize + 'static> IntoIterator for &'a Slice<marker::A<T>>
+impl<'a, Item:GVariantMarker + NonFixedSize + 'static+?Sized> IntoIterator for &'a marker::A<Item>
 {
-    type Item = &'a Slice<T>;
-    type IntoIter = NonFixedSizeArrayIterator<'a, T>;
+    type Item = &'a Item;
+    type IntoIter = NonFixedSizeArrayIterator<'a, Item>;
     fn into_iter(self) -> Self::IntoIter {
         let (osz, lfo) = read_last_frame_offset(&self.data);
         NonFixedSizeArrayIterator{
             slice:self, next_start:0, offset_idx:lfo, offset_size:osz}
     }
 }
-impl<Item: GVariantMarker + NonFixedSize + 'static> core::ops::Index<usize>
-    for Slice<marker::A<Item>>
+impl<Item: GVariantMarker + NonFixedSize + 'static + ?Sized> core::ops::Index<usize>
+    for marker::A<Item>
 {
-    type Output = Slice<Item>;
+    type Output = Item;
     fn index(&self, index: usize) -> &Self::Output {
         let (osz, lfo) = read_last_frame_offset(&self.data);
         let frame_offsets = &self.data.as_ref()[lfo..];
@@ -450,9 +466,9 @@ impl<Item: GVariantMarker + NonFixedSize + 'static> core::ops::Index<usize>
 // The alignment of a maybe type is always equal to the alignment of its element
 // type.
 
-impl<T: GVariantMarker>  Slice<marker::M::<T>>
+impl<T: GVariantMarker + ?Sized> marker::M::<T>
 {
-    pub fn to_option(&self) -> Option<&Slice<T>> {
+    pub fn to_option(&self) -> Option<&T> {
         if let Some(size) = T::SIZE {
             // 2.5.2.1 Maybe of a Fixed-Sized Element
             //
@@ -490,16 +506,16 @@ impl<T: GVariantMarker>  Slice<marker::M::<T>>
     }
 }
 
-impl<'a, T: GVariantMarker> From<&'a Slice<marker::M<T>>> for Option<&'a Slice<T>>
+impl<'a, T: GVariantMarker> From<&'a marker::M<T>> for Option<&'a T>
     where <marker::M::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>
 {
-    fn from(m: &'a Slice<marker::M<T>>) -> Self {
+    fn from(m: &'a marker::M<T>) -> Self {
         m.to_option()
     }
 }
 
-impl<T: GVariantMarker> PartialEq for Slice<marker::M::<T>>
-    where Slice<T>:PartialEq, <marker::M::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>
+impl<T: GVariantMarker> PartialEq for marker::M::<T>
+    where T:PartialEq, <marker::M::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>
 {
     fn eq(&self, other: &Self) -> bool {
         self.to_option() == other.to_option()
@@ -524,15 +540,22 @@ fn nth_last_frame_offset(data:&[u8], osz: OffsetSize, n:usize) -> usize {
     read_uint(&data[off..], osz, 0)
 }
 
-#[derive(Debug)]
-struct MarkerCsi7{}
+#[derive(Debug,RefCast)]
+#[repr(transparent)]
+struct MarkerCsi7{
+    data: aligned_bytes::AlignedSlice<A4>
+}
 impl marker::GVariantMarker for MarkerCsi7 {
     type Alignment = aligned_bytes::A4;
     const SIZE : Option<usize> = None;
+    fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self
+    {
+        Self::ref_cast(data.as_ref())
+    }
 }
 impl marker::NonFixedSize for MarkerCsi7 {}
 
-impl Slice<MarkerCsi7> {
+impl MarkerCsi7 {
     const N_FRAMES: usize = 2;
     pub fn split(&self) -> (&[u8], &i32) {
         let osz = offset_size(self.data.len());
