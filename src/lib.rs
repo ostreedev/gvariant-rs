@@ -4,6 +4,7 @@ use ref_cast::RefCast;
 
 pub mod aligned_bytes;
 use aligned_bytes::{AlignedSlice, AlignedTo};
+use offset::align_offset;
 
 mod casting;
 mod offset;
@@ -390,7 +391,7 @@ impl<'a, Item: GVariantMarker+NonFixedSize + 'static> Iterator for NonFixedSizeA
         if self.offset_idx == self.slice.data.len() {
             None
         } else {
-            let start = align(self.next_start, Item::ALIGNMENT);
+            let start = align_offset::<Item::Alignment>(self.next_start);
             let end = read_uint(
                 &self.slice.data.as_ref()[self.offset_idx..], self.offset_size, 0);
             self.offset_idx += self.offset_size as usize;
@@ -402,7 +403,7 @@ impl<'a, Item: GVariantMarker+NonFixedSize + 'static> Iterator for NonFixedSizeA
                 // the child is given the default value for its type.
                 Some(Item::_mark(aligned_bytes::empty_aligned()))
             } else {
-                Some(Item::try_mark(&self.slice.data[start..end]).unwrap())
+                Some(Item::_mark(&self.slice.data[..end][start..]))
             }
         }
     }
@@ -426,13 +427,12 @@ impl<Item: GVariantMarker + NonFixedSize + 'static> core::ops::Index<usize>
         let (osz, lfo) = read_last_frame_offset(&self.data);
         let frame_offsets = &self.data.as_ref()[lfo..];
         let end = read_uint(frame_offsets, osz, index);
-        let start = match index {
+        let start = align_offset::<Item::Alignment>(match index {
             0 => 0,
-            x => align(read_uint(frame_offsets, osz, x - 1),
-                              T::ALIGNMENT),
-        };
+            x => read_uint(frame_offsets, osz, x - 1),
+        });
         if start < self.data.len() && end < self.data.len() && start <= end {
-            T::try_mark(&self.data.as_ref()[start..end]).unwrap()
+            Item::_mark(&self.data[..end][start..])
         } else {
             // Start or End Boundary of a Child Falls Outside the Container
             //
@@ -465,7 +465,7 @@ impl<T: GVariantMarker>  Slice<marker::M::<T>>
             // distinguishable from the `Nothing` case because all fixed-sized
             // values have a non-zero size.
             if self.data.len() == size {
-                Some(T::try_mark(&self.data).unwrap())
+                Some(T::_mark(&self.data))
             } else {
                 // Wrong Size for Fixed Sized Maybe
                 //
@@ -487,13 +487,13 @@ impl<T: GVariantMarker>  Slice<marker::M::<T>>
                 // byte ensures that the `Just` case is distinguishable from the
                 // `Nothing` case even in the event that the child value has a size
                 // of zero.
-                Some(T::try_mark(&self.data[..self.data.len() - 1]).unwrap())
+                Some(T::_mark(&self.data[..self.data.len() - 1]))
             }
         }
     }
 }
 
-impl<'a, T: GVariantMarker> From<&'a Slice<marker::M<T>>> for Option<&'a Slice<T>> 
+impl<'a, T: GVariantMarker> From<&'a Slice<marker::M<T>>> for Option<&'a Slice<T>>
     where <marker::M::<T> as GVariantMarker>::Alignment : AlignedTo<T::Alignment>
 {
     fn from(m: &'a Slice<marker::M<T>>) -> Self {
@@ -522,10 +522,6 @@ impl GVariantBool {
 }
 unsafe impl AllBitPatternsValid for GVariantBool {}
 
-fn align(off: usize, alignment: usize) -> usize {
-    (off + alignment - 1) & !(alignment - 1)
-}
-
 fn nth_last_frame_offset(data:&[u8], osz: OffsetSize, n:usize) -> usize {
     let off = data.len() - (n + 1) * osz as usize;
     read_uint(&data[off..], osz, 0)
@@ -544,13 +540,12 @@ impl Slice<MarkerCsi7> {
     pub fn split(&self) -> (&[u8], &i32) {
         let osz = offset_size(self.data.len());
 
-        let frame_0 = ..nth_last_frame_offset(&self.data, osz, 0);
-        let frame_1 = align(frame_0.end, marker::I::ALIGNMENT)..
-            self.data.len() - Self::N_FRAMES * osz as usize;
+        let frame_0_end = nth_last_frame_offset(&self.data, osz, 0);
+        let frame_1_start  = align_offset::<<marker::I as GVariantMarker>::Alignment>(frame_0_end);
 
         (
-            marker::S::mark(&self.data[frame_0]).to_rs(),
-            marker::I::try_mark(&self.data[frame_1.start..frame_1.start+marker::I::SIZE.unwrap()]).unwrap().to_rs_ref(),
+            marker::S::mark(&self.data[..frame_0_end]).to_rs(),
+            marker::I::_mark(&self.data[frame_1_start..][..marker::I::SIZE.unwrap()]).to_rs_ref(),
         )
     }
 }
