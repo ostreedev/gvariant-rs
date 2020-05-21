@@ -1,24 +1,20 @@
 use gvariant_macro::gv;
 use gvariant::marker::GVariantMarker;
 use gvariant::aligned_bytes::A4;
+use gvariant::aligned_bytes::copy_to_align;
 
 #[test]
 fn test_basic_types() {
-    assert_eq!(<gv!("i")>::mark(&*aligned_slice::<A4>(&[0x00, 0x00, 0x00, 0x00])).to_rs(), 0);
+    assert_eq!(<gv!("i")>::_mark(&*copy_to_align(&[0x00, 0x00, 0x00, 0x00])).to_rs(), 0);
 }
 
-fn aligned_slice<A:gvariant::aligned_bytes::Alignment>(data: &[u8]) -> Box<gvariant::aligned_bytes::AlignedSlice<A>> {
-    let mut out = gvariant::aligned_bytes::alloc_aligned(data.len());
-    out.as_mut().copy_from_slice(data);
-    out
-}
 
 #[test]
 fn test_non_normal_values() {
     // Examples of non-normal data from the GVariant paper:
 
     // Wrong Size for Fixed Size Value
-    assert_eq!(<gv!("i")>::mark(aligned_slice::<A4>(&[0x7u8, 0x33, 0x90]).as_ref()).to_rs(), 0);
+    assert_eq!(<gv!("i")>::_mark(&*copy_to_align(&[0x7u8, 0x33, 0x90]).as_ref()).to_rs(), 0);
 
     // Non-zero Padding Bytes
     //assert_eq!(<gv!("(yi)")>::mark(&[0x55, 0x66, 0x77, 0x88, 0x02, 0x01, 0x00, 0x00]).split(), (0x55, 258));
@@ -38,7 +34,7 @@ fn test_non_normal_values() {
     assert_eq!(<gv!("s")>::mark(b"foo\0bar").to_rs(), b"");
 
     // Wrong size for fixed-size maybe
-    assert!(<gv!("mi")>::try_mark(&*aligned_slice::<A4>(&[0x33u8, 0x44, 0x55, 0x66, 0x77, 0x88])).unwrap().to_option().is_none());
+    assert!(<gv!("mi")>::_mark(&*copy_to_align(&[0x33u8, 0x44, 0x55, 0x66, 0x77, 0x88])).to_option().is_none());
 
     // Wrong size for fixed-width array
     //assert_eq!(<gv!("a(yy)")>::mark(&[0x03, 0x04, 0x05, 0x06, 0x07]), []);

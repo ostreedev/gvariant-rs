@@ -594,10 +594,12 @@ use marker::NonFixedSize;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aligned_bytes::{A8, copy_to_align};
 
     #[test]
     fn test_numbers() {
-        let aligned_slice = aligned_slice::<aligned_bytes::A8>(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let data = copy_to_align(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let aligned_slice : &AlignedSlice<A8> = data.as_ref();
 
         // If the size doesn't match exactly it should default to 0:
         assert_eq!(marker::I::mark(&aligned_slice[..0]).to_rs(), 0);
@@ -684,8 +686,8 @@ mod tests {
             [true, false, false, true, true]
         );
 
-        let data = aligned_slice::<aligned_bytes::A4>(b"foo\0\xff\xff\xff\xff\x04");
-        let (s, i) = MarkerCsi7::mark(data.as_ref()).split();
+        let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
+        let (s, i) = MarkerCsi7::_mark(data.as_ref()).split();
         assert_eq!(s, &*b"foo");
         assert_eq!(*i, -1);
 
@@ -696,11 +698,11 @@ mod tests {
         // The example in the spec is missing the second array frame offset
         // `21`.  I've added it here giving me consistent results with the GLib
         // implmentation
-        let data = aligned_slice::<aligned_bytes::A4>(&[
+        let data = copy_to_align(&[
             b'h', b'i', 0, 0, 0xfe, 0xff, 0xff, 0xff, 3, 0, 0, 0,
             b'b', b'y', b'e', 0, 0xff, 0xff, 0xff, 0xff, 4,
             9, 21]);
-        let a = marker::A::<MarkerCsi7>::mark(data.as_ref());
+        let a = marker::A::<MarkerCsi7>::_mark(data.as_ref());
         assert_eq!(a.len(), 2);
         assert_eq!(&a[0].split().0, b"hi");
         assert_eq!(*a[0].split().1, -2);
@@ -770,7 +772,7 @@ mod tests {
         // Array of Integers Example
         //
         // With type 'ai':
-        let data = aligned_slice(b"\x04\0\0\0\x02\x01\0\0");
+        let data = copy_to_align(b"\x04\0\0\0\x02\x01\0\0");
         let aoi = marker::A::<marker::I>::_mark(data.as_ref());
         //assert_eq!(aoi.into(), [4, 258]);
 
@@ -788,11 +790,5 @@ mod tests {
             marker::S::mark(b"hello world\0".as_ref()).to_bytes(),
             b"hello world"
         );
-    }
-
-    fn aligned_slice<A:aligned_bytes::Alignment>(data: &[u8]) -> Box<aligned_bytes::AlignedSlice<A>> {
-        let mut out = aligned_bytes::alloc_aligned(data.len());
-        out.as_mut().copy_from_slice(data);
-        out
     }
 }

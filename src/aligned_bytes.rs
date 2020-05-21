@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, borrow::Cow};
 use std::ops::{Range, RangeTo, Index, RangeFull, RangeToInclusive, Deref, DerefMut, RangeFrom, RangeInclusive};
 use crate::offset::AlignedOffset;
 
@@ -82,6 +82,22 @@ impl<A:Alignment> ToOwned for AlignedSlice<A> {
         let mut owned = alloc_aligned(self.len());
         owned.copy_from_slice(self);
         owned
+    }
+}
+
+/// Aligns the given data to the alignment as given by the type parameter A.
+///
+/// This is convenient for when you can't ensure the alignment of your data in
+/// advance.  By using `Cow` we only have to make a copy of the data if it is
+/// not aligned.
+pub fn copy_to_align<'a, A:Alignment>(data:&'a [u8]) -> Cow<'a, AlignedSlice<A>>
+{
+    if is_aligned_to::<A>(data) {
+        Cow::Borrowed(data.try_as_aligned().unwrap())
+    } else {
+        let mut copy = alloc_aligned::<A>(data.len());
+        copy.copy_from_slice(data);
+        Cow::Owned(copy)
     }
 }
 
