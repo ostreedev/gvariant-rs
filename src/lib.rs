@@ -547,47 +547,6 @@ impl Slice<MarkerCsi7> {
     }
 }
 
-#[derive(Debug)]
-struct MarkerCys7{}
-impl marker::GVariantMarker for MarkerCys7 {
-    type Alignment = aligned_bytes::A1;
-    const SIZE : Option<usize> = None;
-}
-impl marker::NonFixedSize for MarkerCys7 {}
-
-impl Slice<MarkerCys7> {
-    pub const N_FRAMES: usize = 1;
-    pub fn split(&self) -> (&u8, &[u8]) {
-        (
-            marker::Y::mark(&self.data[..1]).to_rs_ref(),
-            marker::S::mark(&self.data[1..]).to_rs(),
-        )
-    }
-}
-
-#[derive(Debug)]
-struct MarkerCCys7as7{}
-impl marker::GVariantMarker for MarkerCCys7as7 {
-    type Alignment = aligned_bytes::A1;
-    const SIZE : Option<usize> = None;
-}
-impl marker::NonFixedSize for MarkerCCys7as7 {}
-
-impl Slice<MarkerCCys7as7> {
-    pub const N_FRAMES: usize = 2;
-    pub fn split(&self) -> (&Slice<MarkerCys7>, &Slice<marker::A::<marker::S>>) {
-        let osz = offset_size(self.data.len());
-
-        let frame_0 = 0..nth_last_frame_offset(&self.data, osz, 0);
-        let frame_1 = frame_0.end..self.data.len() - osz as usize;
-
-        (
-            MarkerCys7::mark(&self.data[frame_0]),
-            marker::A::<marker::S>::mark(&self.data[frame_1]),
-        )
-    }
-}
-
 use crate::marker::GVariantMarker;
 use marker::NonFixedSize;
 
@@ -717,52 +676,6 @@ mod tests {
             .into_iter().map(|x| x.to_bytes()).collect();
         assert_eq!(v, [b"i".as_ref(), b"can", b"has", b"strings?"]);
 
-        // Nested Structure Example
-        //
-        // With type '((ys)as)'
-        //
-        // Note: This is another example where I think there is a bug in the
-        // spec. I've added \x0d here as an additional framing offset of the
-        // `as`. This gives consistent results with the GLib implementation.
-        let ns = MarkerCCys7as7::mark(b"ican\0has\0strings?\0\x04\x0d\x05");
-        assert_eq!(*ns.split().0.split().0, b'i');
-        assert_eq!(ns.split().0.split().1, b"can");
-        let v : Vec<_> = ns.split().1.into_iter().map(|x| x.to_bytes()).collect();
-        assert_eq!(v, &[b"has".as_ref(), b"strings?"]);
-
-        // Simple Structure Example
-        //
-        // With type '(yy)':
-        /*
-        let ss = MarkerCyy7::mark([0x70u8, 0x80]);
-        assert_eq!(ss.split(), (0x80, 0x80));
-        */
-        // Padded Structure Example 1
-        //
-        // With type '(iy)':
-        /*
-        let ps = MarkerCiy7::mark([0x60, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00]);
-        assert_eq!(ps.split(), (96, 0x70));
-        */
-
-        // Padded Structure Example 2
-        //
-        // With type '(yi)':
-        /*
-        let ps = MarkerCyi7::mark([0x70, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00]);
-        assert_eq!(ps.split(), (0x70, 96));
-        */
-
-        // Array of Structures Example
-        //
-        // With type 'a(iy)':
-        /*
-        let aos = marker::A::<MarkerCiy7>::mark(
-            b"\x60\0\0\0\x70\0\0\0\x88\x02\0\0\xf7\0\0\0");
-        let v : Vec<_> = aos.into_iter().map(|x|x.split()).collect();
-        assert_eq!(v, [(96, 0x70), (648, 0xf7)]);
-        */
-        
         // Array of Bytes Example
         //
         // With type 'ay':
