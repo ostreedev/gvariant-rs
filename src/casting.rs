@@ -1,4 +1,4 @@
-use std::{fmt::Display, error::Error, convert::TryInto};
+use std::{convert::TryInto, error::Error, fmt::Display};
 
 use crate::aligned_bytes;
 use crate::aligned_bytes::{is_aligned, AlignedSlice};
@@ -17,19 +17,21 @@ pub unsafe trait AllBitPatternsValid {
 // It would be nice to be able to use std::mem::align_of<T>(), but we need it in
 // trait bounds, so that'll have to wait until const generics:
 pub unsafe trait AlignOf {
-    type AlignOf : aligned_bytes::Alignment;
+    type AlignOf: aligned_bytes::Alignment;
 }
 
 #[derive(Debug)]
-pub struct WrongSize{}
-impl Error for WrongSize{}
-impl Display for WrongSize{
+pub struct WrongSize {}
+impl Error for WrongSize {}
+impl Display for WrongSize {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Slice has wrong size")
     }
 }
 
-pub(crate) fn cast_slice<'a, A:aligned_bytes::Alignment, T: AllBitPatternsValid>(a: &'a AlignedSlice<A>) -> Result<&'a [T], WrongSize> {
+pub(crate) fn cast_slice<'a, A: aligned_bytes::Alignment, T: AllBitPatternsValid>(
+    a: &'a AlignedSlice<A>,
+) -> Result<&'a [T], WrongSize> {
     // This function requires the data to already have suitable alignment.  This
     // should be compiled out:
     if A::ALIGNMENT < std::mem::align_of::<T>() {
@@ -48,27 +50,37 @@ pub(crate) fn cast_slice<'a, A:aligned_bytes::Alignment, T: AllBitPatternsValid>
             )
         })
     } else {
-        Err(WrongSize{})
+        Err(WrongSize {})
     }
 }
 
-pub(crate) fn try_cast_slice_to<'a, A:aligned_bytes::Alignment, T:AlignOf+AllBitPatternsValid>(s : &'a AlignedSlice<A>) -> Result<&'a T, WrongSize>
-{
+pub(crate) fn try_cast_slice_to<
+    'a,
+    A: aligned_bytes::Alignment,
+    T: AlignOf + AllBitPatternsValid,
+>(
+    s: &'a AlignedSlice<A>,
+) -> Result<&'a T, WrongSize> {
     if std::mem::size_of::<T>() == s.len() {
         debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
-        Ok(unsafe{&*(s.as_ptr() as *const T)})
+        Ok(unsafe { &*(s.as_ptr() as *const T) })
     } else {
-        Err(WrongSize{})
+        Err(WrongSize {})
     }
 }
 
-pub(crate) fn try_cast_slice_to_mut<'a, A:aligned_bytes::Alignment, T:AlignOf+AllBitPatternsValid>(s : &'a mut AlignedSlice<A>) -> Result<&'a mut T, WrongSize>
-{
+pub(crate) fn try_cast_slice_to_mut<
+    'a,
+    A: aligned_bytes::Alignment,
+    T: AlignOf + AllBitPatternsValid,
+>(
+    s: &'a mut AlignedSlice<A>,
+) -> Result<&'a mut T, WrongSize> {
     if std::mem::size_of::<T>() == s.len() {
         debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
-        Ok(unsafe{&mut *(s.as_mut_ptr() as *mut T)})
+        Ok(unsafe { &mut *(s.as_mut_ptr() as *mut T) })
     } else {
-        Err(WrongSize{})
+        Err(WrongSize {})
     }
 }
 
@@ -99,7 +111,7 @@ macro_rules! unsafe_fixed_bytes_to_type {
             type Error = WrongSize;
             fn try_into(self) -> Result<&'a [$type], Self::Error> {
                 cast_slice(self)
-            } 
+            }
         }
     };
 }

@@ -30,7 +30,7 @@ fn type_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
     Ok(String::from_utf8(code)?)
 }
 
-fn marker_type(t : &GVariantType, f: &mut impl std::io::Write) -> std::io::Result<()> {
+fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result<()> {
     match t {
         GVariantType::B => write!(f, "::gvariant::marker::B"),
         GVariantType::Y => write!(f, "::gvariant::marker::Y"),
@@ -49,12 +49,12 @@ fn marker_type(t : &GVariantType, f: &mut impl std::io::Write) -> std::io::Resul
             write!(f, "::gvariant::marker::A::<")?;
             marker_type(t, f)?;
             write!(f, ">")
-        },
+        }
         GVariantType::M(t) => {
             write!(f, "::gvariant::marker::M::<")?;
             marker_type(t, f)?;
             write!(f, ">")
-        },
+        }
         GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
             write!(f, "Structure{}", escape(t.to_string()))
         }
