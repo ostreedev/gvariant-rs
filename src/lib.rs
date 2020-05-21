@@ -293,7 +293,7 @@ where
     <marker::A<T> as GVariantMarker>::Alignment: AlignedTo<T::Alignment>,
     T::RefType: Sized + AllBitPatternsValid,
 {
-    pub fn to_rs(&self) -> &[T::RefType] {
+    pub fn to_slice(&self) -> &[T::RefType] {
         match casting::cast_slice(&self.data) {
             Err(_) => &[],
             Ok(x) => x,
@@ -673,7 +673,7 @@ mod tests {
         );
         assert_eq!(
             marker::A::<marker::B>::mark([1u8, 0, 0, 1, 1].as_ref())
-                .to_rs()
+                .to_slice()
                 .iter()
                 .map(|x| x.to_bool())
                 .collect::<Vec<_>>(),
@@ -716,14 +716,14 @@ mod tests {
         //
         // With type 'ay':
         let aob = marker::A::<marker::Y>::mark(&[0x04u8, 0x05, 0x06, 0x07]);
-        assert_eq!(aob.to_rs(), &[0x04u8, 0x05, 0x06, 0x07]);
+        assert_eq!(aob.to_slice(), &[0x04u8, 0x05, 0x06, 0x07]);
 
         // Array of Integers Example
         //
         // With type 'ai':
         let data = copy_to_align(b"\x04\0\0\0\x02\x01\0\0");
         let aoi = marker::A::<marker::I>::_mark(data.as_ref());
-        assert_eq!(aoi.to_rs(), [4, 258]);
+        assert_eq!(aoi.to_slice(), [4, 258]);
 
         // Dictionary Entry Example
         //

@@ -76,7 +76,7 @@ fn test_non_normal_values() {
     // Boolean Out of Range
     assert_eq!(
         <gv!("ab")>::mark(&[0x01u8, 0x00, 0x03, 0x04, 0x00, 0x01, 0xff, 0x80, 0x00])
-            .to_rs()
+            .to_slice()
             .iter()
             .map(|x| x.to_bool())
             .collect::<Vec<_>>(),
