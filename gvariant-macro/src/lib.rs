@@ -4,6 +4,7 @@ use std::error::Error;
 
 mod generate_impl;
 mod type_parser;
+use generate_impl::escape;
 
 use type_parser::GVariantType;
 
@@ -75,18 +76,4 @@ fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result
             write!(f, "_gvariant_macro::Structure{}", escape(t.to_string()))
         }
     }
-}
-
-fn escape(x: String) -> String {
-    let mut out = x.into_bytes();
-    for c in &mut out.iter_mut() {
-        *c = match *c {
-            b'(' => b'C',
-            b'{' => b'F',
-            b')' => b'7',
-            b'}' => b'3',
-            _ => *c,
-        }
-    }
-    String::from_utf8(out).unwrap()
 }
