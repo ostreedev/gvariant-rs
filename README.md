@@ -5,7 +5,7 @@ fast reading of in-memory buffers.
 
 ```rust
     let data = b"It works!\0";
-    let string : &[u8] = GVariant!("s")::mark(data).into();
+    let string : &[u8] = gv!("s")::mark(data).into();
 ```
 
 This library operates by reinterpreting byte buffers as a GVariant type. It
