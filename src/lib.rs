@@ -20,9 +20,6 @@ pub mod marker {
         fn mark<'a, Data: AsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> &'a super::Slice<Self> {
             Self::_mark(data.as_aligned())
         }
-        fn try_mark<'a, Data: TryAsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> Result<&'a super::Slice<Self>, Misaligned> {
-            Ok(Self::_mark(data.try_as_aligned()?))
-        }
         fn _mark(data: &AlignedSlice<Self::Alignment>) -> &super::Slice<Self> {
             super::Slice::<Self>::ref_cast(data)
         }
@@ -773,8 +770,8 @@ mod tests {
         // Array of Integers Example
         //
         // With type 'ai':
-        let aoi = marker::A::<marker::I>::try_mark(
-            b"\x04\0\0\0\x02\x01\0\0").unwrap();
+        let data = aligned_slice(b"\x04\0\0\0\x02\x01\0\0");
+        let aoi = marker::A::<marker::I>::_mark(data.as_ref());
         //assert_eq!(aoi.into(), [4, 258]);
 
         // Dictionary Entry Example
