@@ -10,17 +10,20 @@ mod offset;
 
 pub mod marker {
     use ref_cast::RefCast;
-    use super::aligned_bytes::{AsAligned, TryAsAligned, Misaligned};
+    use super::aligned_bytes::{AlignedSlice, AsAligned, TryAsAligned, Misaligned};
 
     pub trait GVariantMarker : Sized {
         type Alignment : super::aligned_bytes::Alignment;
         const ALIGNMENT : usize = std::mem::align_of::<Self::Alignment>();
         const SIZE : Option<usize>;
         fn mark<'a, Data: AsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> &'a super::Slice<Self> {
-            super::Slice::<Self>::ref_cast(data.as_aligned())
+            Self::_mark(data.as_aligned())
         }
         fn try_mark<'a, Data: TryAsAligned<Self::Alignment> + ?Sized>(data: &'a Data) -> Result<&'a super::Slice<Self>, Misaligned> {
-            Ok(super::Slice::<Self>::ref_cast(data.try_as_aligned()?))
+            Ok(Self::_mark(data.try_as_aligned()?))
+        }
+        fn _mark(data: &AlignedSlice<Self::Alignment>) -> &super::Slice<Self> {
+            super::Slice::<Self>::ref_cast(data)
         }
     }
     pub trait FixedSize {
