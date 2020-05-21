@@ -8,11 +8,14 @@ use std::{
 use ref_cast::RefCast;
 
 pub mod aligned_bytes;
-use aligned_bytes::{AlignedSlice, AlignedTo, A4};
 use offset::align_offset;
 
 mod casting;
-mod offset;
+pub mod offset;
+
+use aligned_bytes::AlignedTo;
+use marker::GVariantMarker;
+use marker::NonFixedSize;
 
 pub mod marker {
     use super::aligned_bytes::{AlignedSlice, Alignment, AsAligned};
@@ -335,7 +338,7 @@ where
 // They are always stored in little-endian byte order.
 
 #[derive(Debug, Copy, Clone)]
-enum OffsetSize {
+pub enum OffsetSize {
     U0 = 0,
     U1 = 1,
     U2 = 2,
@@ -343,7 +346,7 @@ enum OffsetSize {
     U8 = 8,
 }
 
-fn offset_size(len: usize) -> OffsetSize {
+pub fn offset_size(len: usize) -> OffsetSize {
     match len {
         0 => OffsetSize::U0,
         0x1..=0xFF => OffsetSize::U1,
@@ -553,46 +556,15 @@ impl GVariantBool {
 }
 unsafe impl AllBitPatternsValid for GVariantBool {}
 
-fn nth_last_frame_offset(data: &[u8], osz: OffsetSize, n: usize) -> usize {
+pub fn nth_last_frame_offset(data: &[u8], osz: OffsetSize, n: usize) -> usize {
     let off = data.len() - (n + 1) * osz as usize;
     read_uint(&data[off..], osz, 0)
 }
 
-#[derive(Debug, RefCast)]
-#[repr(transparent)]
-pub struct MarkerCsi7 {
-    data: aligned_bytes::AlignedSlice<A4>,
-}
-impl marker::GVariantMarker for MarkerCsi7 {
-    type Alignment = aligned_bytes::A4;
-    const SIZE: Option<usize> = None;
-    fn _mark(data: &AlignedSlice<Self::Alignment>) -> &Self {
-        Self::ref_cast(data.as_ref())
-    }
-}
-impl marker::NonFixedSize for MarkerCsi7 {}
-
-impl MarkerCsi7 {
-    pub fn split(&self) -> (&[u8], &i32) {
-        let osz = offset_size(self.data.len());
-
-        let frame_0_end = nth_last_frame_offset(&self.data, osz, 0);
-        let frame_1_start = align_offset::<<marker::I as GVariantMarker>::Alignment>(frame_0_end);
-
-        (
-            marker::S::mark(&self.data[..frame_0_end]).to_rs(),
-            marker::I::_mark(&self.data[frame_1_start..][..marker::I::SIZE.unwrap()]).to_rs_ref(),
-        )
-    }
-}
-
-use crate::marker::GVariantMarker;
-use marker::NonFixedSize;
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aligned_bytes::{copy_to_align, A8};
+    use aligned_bytes::{copy_to_align, AlignedSlice, A8};
 
     #[test]
     fn test_numbers() {
@@ -680,29 +652,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             [true, false, false, true, true]
         );
-
-        let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
-        let (s, i) = MarkerCsi7::_mark(data.as_ref()).split();
-        assert_eq!(s, &*b"foo");
-        assert_eq!(*i, -1);
-
-        // Structure Array Example
-        //
-        // With type 'a(si)'.
-        //
-        // The example in the spec is missing the second array frame offset
-        // `21`.  I've added it here giving me consistent results with the GLib
-        // implmentation
-        let data = copy_to_align(&[
-            b'h', b'i', 0, 0, 0xfe, 0xff, 0xff, 0xff, 3, 0, 0, 0, b'b', b'y', b'e', 0, 0xff, 0xff,
-            0xff, 0xff, 4, 9, 21,
-        ]);
-        let a = marker::A::<MarkerCsi7>::_mark(data.as_ref());
-        assert_eq!(a.len(), 2);
-        assert_eq!(&a[0].split().0, b"hi");
-        assert_eq!(*a[0].split().1, -2);
-        assert_eq!(&a[1].split().0, b"bye");
-        assert_eq!(*a[1].split().1, -1);
 
         // String Array Example
         //

@@ -1,6 +1,6 @@
 use gvariant::aligned_bytes::copy_to_align;
 use gvariant::marker::GVariantMarker;
-use gvariant_macro::gv;
+use gvariant_macro::{define_gv, gv};
 
 #[test]
 fn test_basic_types() {
@@ -9,9 +9,33 @@ fn test_basic_types() {
         0
     );
 }
+define_gv!("(si)");
 
 #[test]
 fn test_spec_examples() {
+    let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
+    let (s, i) = <gv!("(si)")>::_mark(data.as_ref()).split();
+    assert_eq!(s, &*b"foo");
+    assert_eq!(*i, -1);
+
+    // Structure Array Example
+    //
+    // With type 'a(si)'.
+    //
+    // The example in the spec is missing the second array frame offset
+    // `21`.  I've added it here giving me consistent results with the GLib
+    // implmentation
+    let data = copy_to_align(&[
+        b'h', b'i', 0, 0, 0xfe, 0xff, 0xff, 0xff, 3, 0, 0, 0, b'b', b'y', b'e', 0, 0xff, 0xff,
+        0xff, 0xff, 4, 9, 21,
+    ]);
+    let a = <gv!("a(si)")>::_mark(data.as_ref());
+    assert_eq!(a.len(), 2);
+    assert_eq!(&a[0].split().0, b"hi");
+    assert_eq!(*a[0].split().1, -2);
+    assert_eq!(&a[1].split().0, b"bye");
+    assert_eq!(*a[1].split().1, -1);
+
     // Nested Structure Example
     //
     // With type '((ys)as)'

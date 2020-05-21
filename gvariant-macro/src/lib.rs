@@ -2,12 +2,29 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use std::error::Error;
 
+mod generate_impl;
 mod type_parser;
 
 use type_parser::GVariantType;
 
 #[proc_macro]
 pub fn gv(input: TokenStream) -> TokenStream {
+    type_for_typestr(&tokenstream_to_typestr(input))
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+#[proc_macro]
+pub fn define_gv(input: TokenStream) -> TokenStream {
+    let typestr = tokenstream_to_typestr(input);
+    generate_impl::generate_types(&typestr)
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+fn tokenstream_to_typestr(input: TokenStream) -> std::vec::Vec<u8> {
     let arg = input.into_iter().next().expect("Missing argument");
     let gv;
     if let proc_macro::TokenTree::Literal(lit) = arg {
@@ -19,8 +36,7 @@ pub fn gv(input: TokenStream) -> TokenStream {
         [b'"', .., b'"'] => (),
         _ => panic!("Argument must be a string literal"),
     };
-    let gv = &gv.as_slice()[1..gv.len() - 1];
-    type_for_typestr(gv).unwrap().parse().unwrap()
+    gv.as_slice()[1..gv.len() - 1].to_owned()
 }
 
 fn type_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
@@ -56,7 +72,7 @@ fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result
             write!(f, ">")
         }
         GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
-            write!(f, "Structure{}", escape(t.to_string()))
+            write!(f, "_gvariant_macro::Structure{}", escape(t.to_string()))
         }
     }
 }
@@ -65,8 +81,8 @@ fn escape(x: String) -> String {
     let mut out = x.into_bytes();
     for c in &mut out.iter_mut() {
         *c = match *c {
-            b'(' => b'c',
-            b'{' => b'f',
+            b'(' => b'C',
+            b'{' => b'F',
             b')' => b'7',
             b'}' => b'3',
             _ => *c,

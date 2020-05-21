@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 gvariant-macro = {path = "gvariant-macro"}
 gvariant = {path = "gvariant"}
+ref-cast = "1.0"
