@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::ops::{Range, RangeTo, Index, RangeFull, RangeToInclusive, Deref, DerefMut, RangeFrom, RangeInclusive};
+use crate::offset::AlignedOffset;
 
 // This is unsafe because it must only be implemented for zero-sized types
 pub unsafe trait Alignment : Debug {
@@ -281,6 +282,31 @@ impl<A : Alignment> Index<RangeFull> for AlignedSlice<A> {
     type Output = AlignedSlice<A>;
     fn index(&self, _: RangeFull) -> &Self::Output {
         &self
+    }
+}
+
+impl<A : Alignment> Index<Range<AlignedOffset<A>>> for AlignedSlice<A> {
+    type Output = AlignedSlice<A>;
+    fn index(&self, index: Range<AlignedOffset<A>>) -> &Self::Output {
+        // index.start and index.end are guaranteed to be a multiple of
+        // A::ALIGNMENT, so this is safe:
+        unsafe {to_alignedslice_unchecked(&self.data[index.start.to_usize()..index.end.to_usize()])}
+    }
+}
+impl<A : Alignment> Index<RangeInclusive<AlignedOffset<A>>> for AlignedSlice<A> {
+    type Output = AlignedSlice<A>;
+    fn index(&self, index: RangeInclusive<AlignedOffset<A>>) -> &Self::Output {
+        // index.start and index.end are guaranteed to be a multiple of
+        // A::ALIGNMENT, so this is safe:
+        unsafe {to_alignedslice_unchecked(&self.data[index.start().to_usize()..=index.end().to_usize()])}
+    }
+}
+impl<A : Alignment> Index<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
+    type Output = AlignedSlice<A>;
+    fn index(&self, index: RangeFrom<AlignedOffset<A>>) -> &Self::Output {
+        // index.start is guaranteed to be a multiple of A::ALIGNMENT, so this
+        // is safe:
+        unsafe {to_alignedslice_unchecked(&self.data[index.start.to_usize()..])}
     }
 }
 

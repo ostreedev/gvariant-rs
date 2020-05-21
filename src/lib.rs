@@ -6,6 +6,7 @@ pub mod aligned_bytes;
 use aligned_bytes::{AlignedSlice, AlignedTo};
 
 mod casting;
+mod offset;
 
 pub mod marker {
     use ref_cast::RefCast;
