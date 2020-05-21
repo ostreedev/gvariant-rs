@@ -85,10 +85,6 @@ impl<A:Alignment> ToOwned for AlignedSlice<A> {
     }
 }
 
-#[repr(align(8))]
-#[derive(Copy,Clone)]
-struct AlignedTo8(u64);
-
 pub fn alloc_aligned<A:Alignment>(size : usize) -> Box<AlignedSlice<A>>
 {
     let layout = std::alloc::Layout::from_size_align(size, A::ALIGNMENT).unwrap();
