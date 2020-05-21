@@ -372,15 +372,15 @@ fn read_last_frame_offset(data: &[u8]) -> (OffsetSize, usize) {
 
 // Non-fixed width arrays
 
-impl<T: marker::GVariantMarker + marker::NonFixedSize + ?Sized> marker::A<T> {
-    // Problem: Non-Sense Length for Non-Fixed Width Array
-    //
-    // In the event that the final framing offset of a non-fixed-width array
-    // points to a boundary outside of the byte sequence of the array, or
-    // indicates a non-integral number of framing offsets is present in the
-    // array, the value is taken to be the empty array.
+impl<T: marker::GVariantMarker + ?Sized> marker::A<T> {
     pub fn len(&self) -> usize {
-        if self.data.is_empty() {
+        if let Some(size) = T::SIZE {
+            if self.data.len() % size == 0 {
+                self.data.len() / size
+            } else {
+                0
+            }
+        } else if self.data.is_empty() {
             0
         } else {
             // Since determining the length of the array relies on our ability
@@ -392,7 +392,7 @@ impl<T: marker::GVariantMarker + marker::NonFixedSize + ?Sized> marker::A<T> {
             // what the answer is.
             let (osz, lfo) = read_last_frame_offset(&self.data);
             match osz {
-                OffsetSize::U0 => 0,
+                OffsetSize::U0 => unreachable!(),
                 x => (self.data.len() - lfo) / (x as usize),
             }
         }
@@ -671,9 +671,10 @@ mod tests {
                 .to_bytes(),
             b"hello world"
         );
+        let aob = marker::A::<marker::B>::mark([1u8, 0, 0, 1, 1].as_ref());
+        assert_eq!(aob.len(), 5);
         assert_eq!(
-            marker::A::<marker::B>::mark([1u8, 0, 0, 1, 1].as_ref())
-                .to_slice()
+            aob.to_slice()
                 .iter()
                 .map(|x| x.to_bool())
                 .collect::<Vec<_>>(),
@@ -716,6 +717,7 @@ mod tests {
         //
         // With type 'ay':
         let aob = marker::A::<marker::Y>::mark(&[0x04u8, 0x05, 0x06, 0x07]);
+        assert_eq!(aob.len(), 4);
         assert_eq!(aob.to_slice(), &[0x04u8, 0x05, 0x06, 0x07]);
 
         // Array of Integers Example
@@ -723,6 +725,7 @@ mod tests {
         // With type 'ai':
         let data = copy_to_align(b"\x04\0\0\0\x02\x01\0\0");
         let aoi = marker::A::<marker::I>::_mark(data.as_ref());
+        assert_eq!(aoi.len(), 2);
         assert_eq!(aoi.to_slice(), [4, 258]);
 
         // Dictionary Entry Example
