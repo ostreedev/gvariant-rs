@@ -159,18 +159,6 @@ fn parse_one_type_spec(
     })
 }
 
-fn parse_many_type_spec(
-    it: &mut impl Iterator<Item = u8>,
-) -> Result<Vec<GVariantType>, Box<dyn Error>> {
-    let mut subtype = vec![];
-    loop {
-        match it.next() {
-            Some(c) => subtype.push(parse_one_type_spec(c, it)?),
-            None => return Ok(subtype),
-        };
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

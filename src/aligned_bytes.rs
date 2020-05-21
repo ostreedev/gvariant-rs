@@ -317,13 +317,19 @@ impl<A: Alignment> Index<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
 
 unsafe fn to_alignedslice_unchecked<'a, A: Alignment>(value: &'a [u8]) -> &'a AlignedSlice<A> {
     debug_assert!(is_aligned_to::<A>(value));
-    unsafe { &*(value as *const [u8] as *const AlignedSlice<A>) }
+    #[allow(unused_unsafe)]
+    unsafe {
+        &*(value as *const [u8] as *const AlignedSlice<A>)
+    }
 }
 unsafe fn to_alignedslice_unchecked_mut<'a, A: Alignment>(
     value: &'a mut [u8],
 ) -> &'a mut AlignedSlice<A> {
     debug_assert!(is_aligned_to::<A>(value));
-    unsafe { &mut *(value as *mut [u8] as *mut AlignedSlice<A>) }
+    #[allow(unused_unsafe)]
+    unsafe {
+        &mut *(value as *mut [u8] as *mut AlignedSlice<A>)
+    }
 }
 
 fn is_aligned_to<A: Alignment>(value: &[u8]) -> bool {

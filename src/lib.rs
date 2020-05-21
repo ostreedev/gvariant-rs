@@ -15,7 +15,7 @@ mod casting;
 mod offset;
 
 pub mod marker {
-    use super::aligned_bytes::{AlignedSlice, Alignment, AsAligned, Misaligned, TryAsAligned};
+    use super::aligned_bytes::{AlignedSlice, Alignment, AsAligned};
     use ref_cast::RefCast;
 
     pub trait GVariantMarker {
@@ -560,7 +560,7 @@ fn nth_last_frame_offset(data: &[u8], osz: OffsetSize, n: usize) -> usize {
 
 #[derive(Debug, RefCast)]
 #[repr(transparent)]
-struct MarkerCsi7 {
+pub struct MarkerCsi7 {
     data: aligned_bytes::AlignedSlice<A4>,
 }
 impl marker::GVariantMarker for MarkerCsi7 {
@@ -573,7 +573,6 @@ impl marker::GVariantMarker for MarkerCsi7 {
 impl marker::NonFixedSize for MarkerCsi7 {}
 
 impl MarkerCsi7 {
-    const N_FRAMES: usize = 2;
     pub fn split(&self) -> (&[u8], &i32) {
         let osz = offset_size(self.data.len());
 
@@ -724,7 +723,7 @@ mod tests {
         // With type 'ai':
         let data = copy_to_align(b"\x04\0\0\0\x02\x01\0\0");
         let aoi = marker::A::<marker::I>::_mark(data.as_ref());
-        //assert_eq!(aoi.into(), [4, 258]);
+        assert_eq!(aoi.to_rs(), [4, 258]);
 
         // Dictionary Entry Example
         //

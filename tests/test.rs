@@ -1,5 +1,4 @@
 use gvariant::aligned_bytes::copy_to_align;
-use gvariant::aligned_bytes::A4;
 use gvariant::marker::GVariantMarker;
 use gvariant_macro::gv;
 
