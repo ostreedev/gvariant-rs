@@ -10,6 +10,7 @@ fn test_basic_types() {
     );
 }
 define_gv!("(si)");
+define_gv!("(yy)");
 
 #[test]
 fn test_spec_examples() {
@@ -53,10 +54,10 @@ fn test_spec_examples() {
     // Simple Structure Example
     //
     // With type '(yy)':
-    /*
-    let ss = <gv!("(yy)")>::mark([0x70u8, 0x80]);
-    assert_eq!(ss.split(), (0x80, 0x80));
-    */
+    let ss = <gv!("(yy)")>::mark(&[0x70u8, 0x80]);
+    let s = ss.split();
+    assert_eq!((s.0.to_rs(), s.1.to_rs()), (0x70, 0x80));
+
     // Padded Structure Example 1
     //
     // With type '(iy)':

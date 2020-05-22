@@ -1,7 +1,10 @@
 use std::error::Error;
 use std::io::Write;
 
-use crate::{marker_type, type_parser::{one, GVariantType}};
+use crate::{
+    marker_type,
+    type_parser::{one, GVariantType},
+};
 
 pub(crate) fn generate_types(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
     let spec = one(gv_typestr)?;
@@ -45,7 +48,7 @@ fn generate_tuple(
     write!(
         code,
         "
-mod _gvariant_macro {{
+mod _gvariant_macro_{name} {{
     #[macro_use]
     use ref_cast::RefCast;
     use ::gvariant::aligned_bytes::{{AlignedSlice, AsAligned}};
