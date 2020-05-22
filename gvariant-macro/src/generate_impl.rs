@@ -150,10 +150,19 @@ mod _gvariant_macro_{spec} {{
         write!(
             code,
             "
+            impl Marker{spec} {{
+                pub fn as_struct(&self) -> &Structure{spec} {{
+                    if let Ok(x) = ::gvariant::casting::try_cast_slice_to(&self.data) {{
+                        x
+                    }} else {{
+                        Structure{spec}::default_ref()
+                    }}
+                }}
+            }}
             impl ::gvariant::RustType for Marker{spec} {{
                 type RefType = Structure{spec};
                 fn default_ref() -> &'static Self::RefType {{
-                    todo!()
+                    &Structure{spec}::default_ref()
                 }}
             }}",
             spec = escape(spec.to_string())
@@ -342,13 +351,16 @@ fn write_packed_struct(
     children: &[GVariantType],
     out: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn Error>> {
-    writeln!(out, "#[derive(Default,Debug)]")?;
+    writeln!(out, "#[derive(Default,Debug,Copy,Clone)]")?;
     writeln!(out, "#[repr(align({}))]", align_of(gv))?;
     let escaped = escape(gv.to_string());
 
     // This is only called for fixed-size structures
     writeln!(out, "pub(crate) struct Structure{} {{", escaped)?;
 
+    let mut field_arglist = vec![];
+    let mut set_fields = "".to_string();
+    let mut defaults = vec![];
     let mut last_end = 0;
     let mut padding_count = 0;
     for (n, (child, &(_, a, b, c))) in children
@@ -361,15 +373,27 @@ fn write_packed_struct(
         let padding = start - last_end;
         if padding > 0 {
             writeln!(out, "    _padding_{} : [u8;{}],", padding_count, padding)?;
+            set_fields.push_str(&format!(
+                "_padding_{} : [0u8;{}],\n",
+                padding_count, padding
+            ));
             padding_count += 1;
         }
+        let rust_type = format!("{}", RustType(&child));
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
-        writeln!(out, "    pub field_{} : {},", n, RustType(&child))?;
+        writeln!(out, "    pub field_{} : {},", n, rust_type)?;
+        field_arglist.push(format!("field_{} : {}", n, rust_type));
+        set_fields.push_str(format!("field_{} : field_{},\n", n, n).as_str());
+        defaults.push("0".to_string());
         last_end = end;
     }
     let padding = size_of(gv).unwrap() - last_end;
     if padding > 0 {
         writeln!(out, "    _padding_{} : [u8;{}],", padding_count, padding)?;
+        set_fields.push_str(&format!(
+            "_padding_{} : [0u8;{}],\n",
+            padding_count, padding
+        ));
     }
     writeln!(
         out,
@@ -378,9 +402,21 @@ fn write_packed_struct(
         unsafe impl AlignOf for Structure{escaped} {{
             type AlignOf = ::gvariant::aligned_bytes::A{align};
         }}
+        impl Structure{escaped} {{
+            pub const fn new({field_arglist}) -> Structure{escaped} {{
+                Structure{escaped} {{ {set_fields} }}
+            }}
+            pub fn default_ref() -> &'static Self {{
+                static s : Structure{escaped} = Structure{escaped}::new({defaults});
+                &s
+            }}
+        }}
         ",
         escaped = escaped,
-        align = align_of(gv)
+        align = align_of(gv),
+        field_arglist = field_arglist.join(", "),
+        set_fields = set_fields,
+        defaults = defaults.join(", "),
     )?;
 
     Ok(())
