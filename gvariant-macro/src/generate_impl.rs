@@ -1,19 +1,22 @@
 use std::error::Error;
 use std::io::Write;
 
-use crate::type_parser::{one, GVariantType};
+use crate::{marker_type, type_parser::{one, GVariantType}};
 
 pub(crate) fn generate_types(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
     let spec = one(gv_typestr)?;
     Ok(match &spec {
-        GVariantType::Tuple(_) => generate_tuple(&spec)?,
+        GVariantType::Tuple(children) => generate_tuple(&spec, children)?,
         GVariantType::DictItem(_) => todo!(),
         // Everything else is a builtin
         _ => "".to_owned(),
     })
 }
 
-fn generate_tuple(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
+fn generate_tuple(
+    spec: &GVariantType,
+    children: &Vec<GVariantType>,
+) -> Result<String, Box<dyn Error>> {
     let mut code: Vec<u8> = vec![];
     let name = "Structure".to_owned() + escape(spec.to_string()).as_ref();
     let alignment = align_of(&spec);
@@ -23,12 +26,32 @@ fn generate_tuple(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
     } else {
         "NonFixedSize"
     };
-    write!(code, "
+    let n_frames: usize = children
+        .into_iter()
+        .filter(|x| size_of(x).is_some())
+        .count();
+    // After all of the items have been added, a framing offset is appended, in
+    // reverse order, for each non-fixed-sized item that is not the last item in
+    // the structure.
+    let n_frame_offsets = if let Some(last_item) = children.last() {
+        if size_of(last_item).is_none() {
+            n_frames - 1
+        } else {
+            n_frames
+        }
+    } else {
+        n_frames
+    };
+    write!(
+        code,
+        "
 mod _gvariant_macro {{
     #[macro_use]
     use ref_cast::RefCast;
-    use ::gvariant::aligned_bytes::AsAligned;
+    use ::gvariant::aligned_bytes::{{AlignedSlice, AsAligned}};
     use ::gvariant::marker::GVariantMarker;
+    use ::gvariant::offset::{{align_offset, AlignedOffset}};
+    use std::convert::TryInto;
 
     #[derive(Debug, RefCast)]
     #[repr(transparent)]
@@ -44,25 +67,83 @@ mod _gvariant_macro {{
     }}
     impl ::gvariant::marker::{sizedtrait} for {name} {{}}
     impl {name} {{
-        const N_FRAME_OFFSETS: usize = 1;
-        pub fn split(&self) -> (&[u8], &i32) {{
+        pub fn split(&self) -> (\n",
+        name = name,
+        alignment = alignment,
+        size = size,
+        sizedtrait = sizedtrait
+    )?;
+
+    // Write out the return type:
+    for child in children {
+        write!(code, "                &")?;
+        marker_type(child, &mut code)?;
+        write!(code, ",\n")?;
+    }
+    write!(code, "            ) {{\n")?;
+
+    if n_frame_offsets > 0 {
+        write!(
+            code,
+            "
             let osz = ::gvariant::offset_size(self.data.len());
-
-            let frame_0 = ..::gvariant::nth_last_frame_offset(&self.data, osz, 0);
-            let frame_1_start = ::gvariant::offset::align_offset::<<::gvariant::marker::I as ::gvariant::marker::GVariantMarker>::Alignment>(frame_0.end);
-            let frame_1_end = self.data.len() - Self::N_FRAME_OFFSETS * osz as usize;
-
-            (
-                ::gvariant::marker::S::_mark(&self.data[frame_0].as_aligned()).to_rs(),
-                ::gvariant::marker::I::_mark(
-                    &self.data[..frame_1_end][frame_1_start..][..::gvariant::marker::I::SIZE.unwrap()],
-                )
-                .to_rs_ref(),
+            let frame_offset_offset = self.data.len() - osz as usize;
+"
+        )?;
+    }
+    for ((n, child), (i, a, b, c)) in children.iter().enumerate().zip(generate_table(children)) {
+        let fo_plus = if i == -1 {
+            "".to_string()
+        } else {
+            format!(
+                "::gvariant::nth_last_frame_offset(&self.data, osz, {}) + ",
+                i
             )
+        };
+        write!(code, "\n            // {ty}\n            let offset_{n} : AlignedOffset<::gvariant::aligned_bytes::A{calign}> = align_offset::<::gvariant::aligned_bytes::A{b}>({fo_plus}{a}) | AlignedOffset::<::gvariant::aligned_bytes::A{calign}>::try_new({c}).unwrap();\n",
+            ty=child.to_string(), n=n, a=a, b=b, c=c, fo_plus=fo_plus, calign=align_of(child))?;
+        let end = if let Some(size) = size_of(child) {
+            format!("offset_{n}.to_usize() + {size}", n = n, size = size)
+        } else if n == children.len() - 1 {
+            if n_frame_offsets == 0 {
+                "self.data.len()".to_string()
+            } else {
+                format!(
+                    "self.data.len() - osz * {n_frame_offsets}",
+                    n_frame_offsets = n_frame_offsets
+                )
+            }
+        } else {
+            format!(
+                "::gvariant::nth_last_frame_offset(&self.data, osz, {i})",
+                i = i + 1
+            )
+        };
+        write!(
+            code,
+            "            let end_{n} : usize = {end};\n",
+            n = n,
+            end = end
+        )?;
+    }
+    write!(code, "            (\n")?;
+    for (n, child) in children.iter().enumerate() {
+        write!(code, "                ")?;
+        marker_type(child, &mut code)?;
+        write!(
+            code,
+            "::_mark(&self.data.as_aligned()[..end_{n}][offset_{n}..]),\n",
+            n = n
+        )?;
+    }
+    write!(
+        code,
+        "            )
         }}
     }}
 }}
-", name=name, alignment=alignment, size=size, sizedtrait=sizedtrait)?;
+"
+    )?;
     Ok(String::from_utf8(code)?)
 }
 
@@ -162,6 +243,54 @@ fn size_of(t: &GVariantType) -> Option<usize> {
     }
 }
 
+// This is a streight port of the Python code from the GVariant paper section
+// 3.2.2 Computing the Table
+//
+// The offset of an item n is then:
+//
+//     let (i, a, b, c) = table[n];
+//     let off = (frame_offset[i] + a + b - 1) & !(b - 1) | c
+//
+// which is:
+//
+//     align<B>(frame_offset[i] + a) | c
+//
+// Postconditions:
+//
+// * b and c are aligned to the child alignment
+fn generate_table(children: &[GVariantType]) -> Vec<(isize, usize, u8, usize)> {
+    let (mut i, mut a, mut b, mut c) = (-1, 0, 1, 0);
+    let mut table = vec![];
+    for child in children {
+        let al = align_of(child);
+        if al <= b {
+            // merge rule #1
+            c = align(c, al)
+        } else {
+            // merge rule #2
+            a = a + align(c, b);
+            b = al;
+            c = 0;
+        }
+        table.push((i, a, b as u8, c));
+        if let Some(size) = size_of(child) {
+            // merge rule #3
+            c += size;
+        } else {
+            // item is not fixed-sized
+            i += 1;
+            a = 0;
+            b = 1;
+            c = 0;
+        }
+    }
+    return table;
+}
+
+fn align(off: usize, alignment: usize) -> usize {
+    (off + alignment - 1) & !(alignment - 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +311,16 @@ mod tests {
         assert_eq!(size_of(&one(b"(uu)").unwrap()), Some(8));
         assert_eq!(size_of(&one(b"(uy)").unwrap()), Some(8));
         assert_eq!(size_of(&one(b"(ti)").unwrap()), Some(16));
+    }
+
+    #[test]
+    fn test_align() {
+        assert_eq!(align(0, 1), 0);
+        assert_eq!(align(1, 1), 1);
+        assert_eq!(align(0, 4), 0);
+        assert_eq!(align(3, 4), 4);
+        assert_eq!(align(4, 4), 4);
+        assert_eq!(align(6, 4), 8);
+        assert_eq!(align(17, 4), 20);
     }
 }

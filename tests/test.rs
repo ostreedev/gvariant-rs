@@ -15,8 +15,8 @@ define_gv!("(si)");
 fn test_spec_examples() {
     let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
     let (s, i) = <gv!("(si)")>::_mark(data.as_ref()).split();
-    assert_eq!(s, &*b"foo");
-    assert_eq!(*i, -1);
+    assert_eq!(s.to_bytes(), &*b"foo");
+    assert_eq!(i.to_rs(), -1);
 
     // Structure Array Example
     //
@@ -31,10 +31,10 @@ fn test_spec_examples() {
     ]);
     let a = <gv!("a(si)")>::_mark(data.as_ref());
     assert_eq!(a.len(), 2);
-    assert_eq!(&a[0].split().0, b"hi");
-    assert_eq!(*a[0].split().1, -2);
-    assert_eq!(&a[1].split().0, b"bye");
-    assert_eq!(*a[1].split().1, -1);
+    assert_eq!(a[0].split().0.to_bytes(), b"hi");
+    assert_eq!(a[0].split().1.to_rs(), -2);
+    assert_eq!(a[1].split().0.to_bytes(), b"bye");
+    assert_eq!(a[1].split().1.to_rs(), -1);
 
     // Nested Structure Example
     //

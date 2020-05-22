@@ -7,12 +7,26 @@ use std::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
 /// useful because you can slice a `AlignedSlice<A2>` and be statically
 /// guaranteed that the slice will still be aligned.
 ///
-/// Use `try_into()` or `align_offset` to construct values of this type.
+/// Use `.try_new()`, `<usize>.try_into()` or `align_offset()` to construct
+/// values of this type.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AlignedOffset<A: Alignment>(usize, PhantomData<A>);
 impl<A: Alignment> AlignedOffset<A> {
     pub fn to_usize(&self) -> usize {
         self.0
+    }
+    /// Construct an `AlignedOffset` from a usize.
+    ///
+    /// Result will be `Err(Misaligned)` if the passed `value` is not a multiple
+    /// of the alignment of this type.  This is provided in addition to the
+    /// `TryInto` impl because there is less scope for type ambiguity with this
+    /// function.
+    pub fn try_new(value: usize) -> Result<Self, Misaligned> {
+        if value % A::ALIGNMENT == 0 {
+            Ok(Self(value, PhantomData::<A> {}))
+        } else {
+            Err(Misaligned {})
+        }
     }
 }
 
@@ -58,11 +72,7 @@ impl<A: Alignment> PartialOrd<AlignedOffset<A>> for usize {
 impl<A: Alignment> TryFrom<usize> for AlignedOffset<A> {
     type Error = Misaligned;
     fn try_from(value: usize) -> Result<Self, Self::Error> {
-        if value % A::ALIGNMENT == 0 {
-            Ok(Self(value, PhantomData::<A> {}))
-        } else {
-            Err(Misaligned {})
-        }
+        Self::try_new(value)
     }
 }
 impl<A: Alignment> Borrow<usize> for AlignedOffset<A> {
@@ -73,6 +83,17 @@ impl<A: Alignment> Borrow<usize> for AlignedOffset<A> {
 impl<A: Alignment> From<AlignedOffset<A>> for usize {
     fn from(value: AlignedOffset<A>) -> Self {
         value.0
+    }
+}
+
+// This is useful for implementing the field alignment algorithm described in
+// the GVariant spec
+impl<A: Alignment> std::ops::BitOr for AlignedOffset<A> {
+    type Output = AlignedOffset<A>;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        // This is safe because neither of A or B will have the bottom bits set,
+        // so we'll end up with a multiple of neither:
+        AlignedOffset::<A>(self.0 | rhs.0, PhantomData::<A> {})
     }
 }
 
