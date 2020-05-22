@@ -5,6 +5,15 @@ use crate::type_parser::{one, GVariantType};
 
 pub(crate) fn generate_types(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
     let spec = one(gv_typestr)?;
+    Ok(match &spec {
+        GVariantType::Tuple(_) => generate_tuple(&spec)?,
+        GVariantType::DictItem(_) => todo!(),
+        // Everything else is a builtin
+        _ => "".to_owned(),
+    })
+}
+
+fn generate_tuple(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
     let mut code: Vec<u8> = vec![];
     let name = "Structure".to_owned() + escape(spec.to_string()).as_ref();
     let alignment = align_of(&spec);
