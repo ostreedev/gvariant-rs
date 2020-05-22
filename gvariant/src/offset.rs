@@ -1,4 +1,4 @@
-use crate::aligned_bytes::{Alignment, Misaligned};
+use crate::aligned_bytes::{Alignment, Misaligned, A1, A2, A4, A8};
 use std::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
 
 /// Represents a usize that is some multiple of Alignment::ALIGNMENT.
@@ -86,7 +86,7 @@ impl<A: Alignment> From<AlignedOffset<A>> for usize {
     }
 }
 
-// This is useful for implementing the field alignment algorithm described in
+// These are useful for implementing the field alignment algorithm described in
 // the GVariant spec
 impl<A: Alignment> std::ops::BitOr for AlignedOffset<A> {
     type Output = AlignedOffset<A>;
@@ -96,6 +96,31 @@ impl<A: Alignment> std::ops::BitOr for AlignedOffset<A> {
         AlignedOffset::<A>(self.0 | rhs.0, PhantomData::<A> {})
     }
 }
+
+macro_rules! impl_bitor {
+    ($x:ty, $y:ty, $min:ty) => {
+        impl std::ops::BitOr<AlignedOffset<$x>> for AlignedOffset<$y> {
+            type Output = AlignedOffset<$min>;
+            fn bitor(self, rhs: AlignedOffset<$x>) -> AlignedOffset<$min> {
+                // This is safe because neither of A or B will have the bottom bits set,
+                // so we'll end up with a multiple of neither:
+                AlignedOffset::<$min>(self.0 | rhs.0, PhantomData::<$min> {})
+            }
+        }
+    };
+}
+impl_bitor!(A1, A2, A1);
+impl_bitor!(A1, A4, A1);
+impl_bitor!(A1, A8, A1);
+impl_bitor!(A2, A1, A1);
+impl_bitor!(A2, A4, A2);
+impl_bitor!(A2, A8, A2);
+impl_bitor!(A4, A1, A1);
+impl_bitor!(A4, A2, A2);
+impl_bitor!(A4, A8, A4);
+impl_bitor!(A8, A1, A1);
+impl_bitor!(A8, A2, A2);
+impl_bitor!(A8, A4, A4);
 
 #[cfg(test)]
 mod tests {

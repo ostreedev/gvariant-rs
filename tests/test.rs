@@ -11,6 +11,8 @@ fn test_basic_types() {
 }
 define_gv!("(si)");
 define_gv!("(yy)");
+define_gv!("(iy)");
+define_gv!("(yi)");
 
 #[test]
 fn test_spec_examples() {
@@ -61,18 +63,18 @@ fn test_spec_examples() {
     // Padded Structure Example 1
     //
     // With type '(iy)':
-    /*
-    let ps = <gv!("(iy)")>::mark([0x60, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00]);
-    assert_eq!(ps.split(), (96, 0x70));
-    */
+    let data = copy_to_align(&[0x60u8, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00]);
+    let ps = <gv!("(iy)")>::_mark(data.as_ref());
+    let s = ps.split();
+    assert_eq!((s.0.to_rs(), s.1.to_rs()), (96, 0x70));
 
     // Padded Structure Example 2
     //
     // With type '(yi)':
-    /*
-    let ps = <gv!("(yi)")>::mark([0x70, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00]);
-    assert_eq!(ps.split(), (0x70, 96));
-    */
+    let data = copy_to_align(&[0x70, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00]);
+    let ps = <gv!("(yi)")>::_mark(data.as_ref());
+    let s = ps.split();
+    assert_eq!((s.0.to_rs(), s.1.to_rs()), (0x70, 96));
 
     // Array of Structures Example
     //
