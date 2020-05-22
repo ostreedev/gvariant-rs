@@ -79,12 +79,13 @@ fn test_spec_examples() {
     // Array of Structures Example
     //
     // With type 'a(iy)':
-    /*
-    let aos = <gv!("a(iy)")>::mark(
-        b"\x60\0\0\0\x70\0\0\0\x88\x02\0\0\xf7\0\0\0");
-    let v : Vec<_> = aos.into_iter().map(|x|x.split()).collect();
-    assert_eq!(v, [(96, 0x70), (648, 0xf7)]);
-    */
+    let data = copy_to_align(b"\x60\0\0\0\x70\0\0\0\x88\x02\0\0\xf7\0\0\0");
+    let v = <gv!("a(iy)")>::_mark(&*data).to_slice();
+    assert_eq!(v.len(), 2);
+    assert_eq!(v[0].field_0, 96);
+    assert_eq!(v[0].field_1, 0x70);
+    assert_eq!(v[1].field_0, 648);
+    assert_eq!(v[1].field_1, 0xf7);
 }
 
 #[test]

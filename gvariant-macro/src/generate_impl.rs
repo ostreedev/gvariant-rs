@@ -143,6 +143,26 @@ mod _gvariant_macro_{spec} {{
         "            )
         }}
     }}
+"
+    )?;
+    if size.is_some() {
+        write_packed_struct(spec, children.as_ref(), &mut code)?;
+        write!(
+            code,
+            "
+            impl ::gvariant::RustType for Marker{spec} {{
+                type RefType = Structure{spec};
+                fn default_ref() -> &'static Self::RefType {{
+                    todo!()
+                }}
+            }}",
+            spec = escape(spec.to_string())
+        )?;
+    }
+
+    write!(
+        code,
+        "
 }}
 "
     )?;
@@ -287,6 +307,83 @@ fn generate_table(children: &[GVariantType]) -> Vec<(isize, usize, u8, usize)> {
         }
     }
     return table;
+}
+
+struct RustType<'a>(&'a GVariantType);
+impl<'a> Display for RustType<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            GVariantType::B => write!(f, "::gvariant::GVariantBool"),
+            GVariantType::Y => write!(f, "u8"),
+            GVariantType::N => write!(f, "i16"),
+            GVariantType::Q => write!(f, "u16"),
+            GVariantType::I => write!(f, "i32"),
+            GVariantType::U => write!(f, "u32"),
+            GVariantType::X => write!(f, "i64"),
+            GVariantType::T => write!(f, "u64"),
+            GVariantType::D => write!(f, "f64"),
+            GVariantType::S | GVariantType::O | GVariantType::G => write!(f, "::gvariant::S"),
+            GVariantType::V => write!(f, "::gvariant::marker::V"),
+            GVariantType::A(_) => todo!(),
+            GVariantType::M(_) => todo!(),
+            GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
+                if let Some(_) = size_of(&self.0) {
+                    write!(f, "Structure{}", escape(self.0.to_string()))
+                } else {
+                    todo!()
+                }
+            }
+        }
+    }
+}
+
+fn write_packed_struct(
+    gv: &GVariantType,
+    children: &[GVariantType],
+    out: &mut impl std::io::Write,
+) -> Result<(), Box<dyn Error>> {
+    writeln!(out, "#[derive(Default,Debug)]")?;
+    writeln!(out, "#[repr(align({}))]", align_of(gv))?;
+    let escaped = escape(gv.to_string());
+
+    // This is only called for fixed-size structures
+    writeln!(out, "pub(crate) struct Structure{} {{", escaped)?;
+
+    let mut last_end = 0;
+    let mut padding_count = 0;
+    for (n, (child, &(_, a, b, c))) in children
+        .iter()
+        .zip(generate_table(&children).iter())
+        .enumerate()
+    {
+        let start = align(a, b as usize) | c;
+        let end = start + size_of(child).unwrap();
+        let padding = start - last_end;
+        if padding > 0 {
+            writeln!(out, "    _padding_{} : [u8;{}],", padding_count, padding)?;
+            padding_count += 1;
+        }
+        writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
+        writeln!(out, "    pub field_{} : {},", n, RustType(&child))?;
+        last_end = end;
+    }
+    let padding = size_of(gv).unwrap() - last_end;
+    if padding > 0 {
+        writeln!(out, "    _padding_{} : [u8;{}],", padding_count, padding)?;
+    }
+    writeln!(
+        out,
+        "}}
+        unsafe impl AllBitPatternsValid for Structure{escaped} {{}}
+        unsafe impl AlignOf for Structure{escaped} {{
+            type AlignOf = ::gvariant::aligned_bytes::A{align};
+        }}
+        ",
+        escaped = escaped,
+        align = align_of(gv)
+    )?;
+
+    Ok(())
 }
 
 fn align(off: usize, alignment: usize) -> usize {
