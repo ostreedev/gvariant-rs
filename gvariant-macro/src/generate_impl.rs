@@ -21,7 +21,6 @@ fn generate_tuple(
     children: &Vec<GVariantType>,
 ) -> Result<String, Box<dyn Error>> {
     let mut code: Vec<u8> = vec![];
-    let name = "Structure".to_owned() + escape(spec.to_string()).as_ref();
     let alignment = align_of(&spec);
     let size = size_of(&spec);
     let sizedtrait = if size.is_some() {
@@ -48,7 +47,7 @@ fn generate_tuple(
     write!(
         code,
         "
-mod _gvariant_macro_{name} {{
+mod _gvariant_macro_{spec} {{
     #[macro_use]
     use ref_cast::RefCast;
     use ::gvariant::aligned_bytes::{{AlignedSlice, AsAligned}};
@@ -58,20 +57,20 @@ mod _gvariant_macro_{name} {{
 
     #[derive(Debug, RefCast)]
     #[repr(transparent)]
-    pub(crate) struct {name} {{
+    pub(crate) struct Marker{spec} {{
         data: ::gvariant::aligned_bytes::AlignedSlice<::gvariant::aligned_bytes::A{alignment}>,
     }}
-    impl GVariantMarker for {name} {{
+    impl GVariantMarker for Marker{spec} {{
         type Alignment = ::gvariant::aligned_bytes::A{alignment};
         const SIZE: Option<usize> = {size:?};
         fn _mark(data: &::gvariant::aligned_bytes::AlignedSlice<Self::Alignment>) -> &Self {{
             Self::ref_cast(data.as_ref())
         }}
     }}
-    impl ::gvariant::marker::{sizedtrait} for {name} {{}}
-    impl {name} {{
+    impl ::gvariant::marker::{sizedtrait} for Marker{spec} {{}}
+    impl Marker{spec} {{
         pub fn split(&self) -> (\n",
-        name = name,
+        spec = escape(spec.to_string()),
         alignment = alignment,
         size = size,
         sizedtrait = sizedtrait

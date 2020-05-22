@@ -74,7 +74,7 @@ fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result
         }
         GVariantType::Tuple(_) | GVariantType::DictItem(_) => write!(
             f,
-            "_gvariant_macro_Structure{name}::Structure{name}",
+            "_gvariant_macro_{name}::Marker{name}",
             name = escape(t.to_string())
         ),
     }
