@@ -165,13 +165,12 @@ mod tests {
     use super::*;
     #[test]
     fn parsing_complex_type() {
-        let mut a = b"bynqiuxtdsogvaamb(abi)m(yy)a{si}".iter().copied();
-        let c = parse_many_type_spec(&mut a).unwrap();
+        let c = one(b"(bynqiuxtdsogvaamb(abi)m(yy)a{si})").unwrap();
 
         use super::GVariantType::*;
         assert_eq!(
             c,
-            [
+            GVariantType::Tuple(vec![
                 B,
                 Y,
                 N,
@@ -189,7 +188,7 @@ mod tests {
                 Tuple(vec![A(Box::new(B)), I]),
                 M(Box::new(Tuple(vec![Y, Y]))),
                 A(Box::new(DictItem(Box::new([S, I]))))
-            ]
+            ])
         );
         assert_eq!(one(b"i").unwrap(), I);
     }
