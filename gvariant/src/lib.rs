@@ -206,8 +206,8 @@ pub fn offset_size(len: usize) -> OffsetSize {
         0 => OffsetSize::U0,
         0x1..=0xFF => OffsetSize::U1,
         0x100..=0xFFFF => OffsetSize::U2,
-        0x10000..=0xFFFFFFFF => OffsetSize::U4,
-        0x100000000..=0xFFFFFFFFFFFFFFFF => OffsetSize::U8,
+        0x1_0000..=0xFFFF_FFFF => OffsetSize::U4,
+        0x1_0000_0000..=0xFFFF_FFFF_FFFF_FFFF => OffsetSize::U8,
         _ => unreachable!(),
     }
 }

@@ -196,12 +196,11 @@ where
 }
 impl<FromA: Alignment, ToA: Alignment> TryAsAligned<ToA> for AlignedSlice<FromA> {
     fn try_as_aligned(&self) -> Result<&AlignedSlice<ToA>, Misaligned> {
-        if std::mem::align_of::<FromA>() >= std::mem::align_of::<ToA>() {
-            // We're narrowing the alignment here, which is always fine.  Using
-            // as_aligned might be better in this instance
-            Ok(unsafe { &*(self as *const Self as *const AlignedSlice<ToA>) })
-        } else if is_aligned_to::<ToA>(self) {
-            // We're widening the alignment, fall back to runtime check
+        // If narrowing the alignment we know it's fine (at compile time).  If
+        // widening the alignment we must fall back to runtime check
+        if std::mem::align_of::<FromA>() >= std::mem::align_of::<ToA>()
+            || is_aligned_to::<ToA>(self)
+        {
             Ok(unsafe { &*(self as *const Self as *const AlignedSlice<ToA>) })
         } else {
             Err(Misaligned {})
@@ -210,12 +209,11 @@ impl<FromA: Alignment, ToA: Alignment> TryAsAligned<ToA> for AlignedSlice<FromA>
 }
 impl<FromA: Alignment, ToA: Alignment> TryAsAlignedMut<ToA> for AlignedSlice<FromA> {
     fn try_as_aligned_mut(&mut self) -> Result<&mut AlignedSlice<ToA>, Misaligned> {
-        if std::mem::align_of::<FromA>() >= std::mem::align_of::<ToA>() {
-            // We're narrowing the alignment here, which is always fine.  Using
-            // as_aligned might be better in this instance
-            Ok(unsafe { &mut *(self as *mut Self as *mut AlignedSlice<ToA>) })
-        } else if is_aligned_to::<ToA>(self) {
-            // We're widening the alignment, fall back to runtime check
+        // If narrowing the alignment we know it's fine (at compile time).  If
+        // widening the alignment we must fall back to runtime check
+        if std::mem::align_of::<FromA>() >= std::mem::align_of::<ToA>()
+            || is_aligned_to::<ToA>(self)
+        {
             Ok(unsafe { &mut *(self as *mut Self as *mut AlignedSlice<ToA>) })
         } else {
             Err(Misaligned {})
