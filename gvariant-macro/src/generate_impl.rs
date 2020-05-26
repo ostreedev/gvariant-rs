@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::fmt;
 use std::io::Write;
 
 use crate::{
@@ -19,7 +18,7 @@ pub(crate) fn generate_types(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>
 
 fn generate_tuple(
     spec: &GVariantType,
-    children: &Vec<GVariantType>,
+    children: &[GVariantType],
 ) -> Result<String, Box<dyn Error>> {
     let size = size_of(&spec);
     let mut out = vec![];
@@ -96,17 +95,16 @@ fn write_non_fixed_size_structure(
     for child in children {
         write!(code, "                &")?;
         marker_type(child, code)?;
-        write!(code, ",\n")?;
+        writeln!(code, ",")?;
     }
-    write!(code, "            ) {{\n")?;
+    writeln!(code, "            ) {{")?;
 
     if n_frame_offsets > 0 {
-        write!(
+        writeln!(
             code,
             "
             let osz = ::gvariant::offset_size(self.data.len());
-            let frame_offset_offset = self.data.len() - osz as usize;
-"
+            let frame_offset_offset = self.data.len() - osz as usize;"
         )?;
     }
     for ((n, child), (i, a, b, c)) in children.iter().enumerate().zip(generate_table(children)) {
@@ -118,7 +116,7 @@ fn write_non_fixed_size_structure(
                 i
             )
         };
-        write!(code, "\n            // {ty}\n            let offset_{n} : AlignedOffset<::gvariant::aligned_bytes::A{calign}> = align_offset::<::gvariant::aligned_bytes::A{b}>({fo_plus}{a}) | AlignedOffset::<::gvariant::aligned_bytes::A{calign}>::try_new({c}).unwrap();\n",
+        writeln!(code, "\n            // {ty}\n            let offset_{n} : AlignedOffset<::gvariant::aligned_bytes::A{calign}> = align_offset::<::gvariant::aligned_bytes::A{b}>({fo_plus}{a}) | AlignedOffset::<::gvariant::aligned_bytes::A{calign}>::try_new({c}).unwrap();",
             ty=child.to_string(), n=n, a=a, b=b, c=c, fo_plus=fo_plus, calign=align_of(child))?;
         let end = if let Some(size) = size_of(child) {
             format!("offset_{n}.to_usize() + {size}", n = n, size = size)
@@ -137,29 +135,28 @@ fn write_non_fixed_size_structure(
                 i = i + 1
             )
         };
-        write!(
+        writeln!(
             code,
-            "            let end_{n} : usize = {end};\n",
+            "            let end_{n} : usize = {end};",
             n = n,
             end = end
         )?;
     }
-    write!(code, "            (\n")?;
+    writeln!(code, "            (")?;
     for (n, child) in children.iter().enumerate() {
         write!(code, "                ")?;
         marker_type(child, code)?;
-        write!(
+        writeln!(
             code,
-            "::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),\n",
+            "::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),",
             n = n
         )?;
     }
-    write!(
+    writeln!(
         code,
         "            )
         }}
-    }}
-"
+    }}"
     )?;
 
     Ok(())
@@ -286,7 +283,7 @@ fn generate_table(children: &[GVariantType]) -> Vec<(isize, usize, u8, usize)> {
             c = align(c, al)
         } else {
             // merge rule #2
-            a = a + align(c, b);
+            a += align(c, b);
             b = al;
             c = 0;
         }

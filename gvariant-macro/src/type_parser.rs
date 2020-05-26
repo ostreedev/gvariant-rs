@@ -74,10 +74,11 @@ pub(crate) fn one(spec: &[u8]) -> Result<GVariantType, Box<dyn Error>> {
         })?,
         &mut it,
     )?;
-    if !it.next().is_none() {
-        Err(ParseError {
+    if it.next().is_some() {
+        return Err(ParseError {
             message: "More than one type in type string",
-        })?
+        }
+        .into());
     }
     Ok(out)
 }
