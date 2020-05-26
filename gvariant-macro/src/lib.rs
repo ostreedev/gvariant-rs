@@ -5,39 +5,23 @@ use std::error::Error;
 mod generate_impl;
 mod type_parser;
 use generate_impl::{escape, size_of};
+use syn::{parse_macro_input, LitStr};
 
 use type_parser::GVariantType;
 
 #[proc_macro]
 pub fn gv(input: TokenStream) -> TokenStream {
-    type_for_typestr(&tokenstream_to_typestr(input))
-        .unwrap()
-        .parse()
-        .unwrap()
+    let typestr = parse_macro_input!(input as LitStr).value();
+    type_for_typestr(typestr.as_ref()).unwrap().parse().unwrap()
 }
 
 #[proc_macro]
 pub fn define_gv(input: TokenStream) -> TokenStream {
-    let typestr = tokenstream_to_typestr(input);
+    let typestr = parse_macro_input!(input as LitStr).value();
     generate_impl::generate_types(&typestr)
         .unwrap()
         .parse()
         .unwrap()
-}
-
-fn tokenstream_to_typestr(input: TokenStream) -> std::vec::Vec<u8> {
-    let arg = input.into_iter().next().expect("Missing argument");
-    let gv;
-    if let proc_macro::TokenTree::Literal(lit) = arg {
-        gv = lit.to_string().as_bytes().to_vec();
-    } else {
-        panic!("Argument must be string literal");
-    }
-    match gv.as_slice() {
-        [b'"', .., b'"'] => (),
-        _ => panic!("Argument must be a string literal"),
-    };
-    gv.as_slice()[1..gv.len() - 1].to_owned()
 }
 
 fn type_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
