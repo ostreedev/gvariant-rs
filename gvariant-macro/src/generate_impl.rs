@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt;
 use std::io::Write;
 
 use crate::{
@@ -20,18 +21,29 @@ fn generate_tuple(
     spec: &GVariantType,
     children: &Vec<GVariantType>,
 ) -> Result<String, Box<dyn Error>> {
-    let mut code: Vec<u8> = vec![];
-    let alignment = align_of(&spec);
     let size = size_of(&spec);
-    let sizedtrait = if size.is_some() {
-        "FixedSize"
+    let mut out = vec![];
+    write!(
+        out,
+        "mod _gvariant_macro_{spec} {{",
+        spec = escape(spec.to_string())
+    )?;
+    if size.is_some() {
+        write_packed_struct(spec, children, &mut out)
     } else {
-        "NonFixedSize"
-    };
-    let n_frames: usize = children
-        .into_iter()
-        .filter(|x| size_of(x).is_some())
-        .count();
+        write_non_fixed_size_structure(spec, children, &mut out)
+    }?;
+    write!(out, "}}")?;
+    Ok(String::from_utf8(out).unwrap())
+}
+
+fn write_non_fixed_size_structure(
+    spec: &GVariantType,
+    children: &[GVariantType],
+    code: &mut impl Write,
+) -> Result<(), Box<dyn Error>> {
+    let alignment = align_of(&spec);
+    let n_frames: usize = children.iter().filter(|x| size_of(x).is_some()).count();
     // After all of the items have been added, a framing offset is appended, in
     // reverse order, for each non-fixed-sized item that is not the last item in
     // the structure.
@@ -47,39 +59,43 @@ fn generate_tuple(
     write!(
         code,
         "
-mod _gvariant_macro_{spec} {{
     #[macro_use]
     use ref_cast::RefCast;
+    use ::gvariant::Cast;
     use ::gvariant::aligned_bytes::{{AlignedSlice, AsAligned}};
-    use ::gvariant::marker::GVariantMarker;
     use ::gvariant::offset::{{align_offset, AlignedOffset}};
-    use std::convert::TryInto;
+    use ::gvariant::casting::{{AllBitPatternsValid, AlignOf}};
 
     #[derive(Debug, RefCast)]
     #[repr(transparent)]
-    pub(crate) struct Marker{spec} {{
-        data: ::gvariant::aligned_bytes::AlignedSlice<::gvariant::aligned_bytes::A{alignment}>,
+    pub(crate) struct Structure{spec} {{
+        data: AlignedSlice<::gvariant::aligned_bytes::A{alignment}>,
     }}
-    impl GVariantMarker for Marker{spec} {{
-        type Alignment = ::gvariant::aligned_bytes::A{alignment};
-        const SIZE: Option<usize> = {size:?};
-        fn _mark(data: &::gvariant::aligned_bytes::AlignedSlice<Self::Alignment>) -> &Self {{
-            Self::ref_cast(data.as_ref())
+    impl ::gvariant::Cast for Structure{spec} {{
+        fn default_ref() -> &'static Self {{
+            &Self::ref_cast(::gvariant::aligned_bytes::empty_aligned())
+        }}
+        fn try_from_aligned_slice(slice:&AlignedSlice<Self::AlignOf>) -> Result<&Self, ::gvariant::casting::WrongSize> {{
+            Ok(Self::ref_cast(slice))
+        }}
+        fn try_from_aligned_slice_mut(slice:&mut AlignedSlice<Self::AlignOf>) -> Result<&mut Self, ::gvariant::casting::WrongSize> {{
+            Ok(Self::ref_cast_mut(slice))
         }}
     }}
-    impl ::gvariant::marker::{sizedtrait} for Marker{spec} {{}}
-    impl Marker{spec} {{
+    unsafe impl ::gvariant::casting::AllBitPatternsValid for Structure{spec} {{}}
+    unsafe impl ::gvariant::casting::AlignOf for Structure{spec} {{
+        type AlignOf = ::gvariant::aligned_bytes::A{alignment};
+    }}
+    impl Structure{spec} {{
         pub fn split(&self) -> (\n",
         spec = escape(spec.to_string()),
         alignment = alignment,
-        size = size,
-        sizedtrait = sizedtrait
     )?;
 
     // Write out the return type:
     for child in children {
         write!(code, "                &")?;
-        marker_type(child, &mut code)?;
+        marker_type(child, code)?;
         write!(code, ",\n")?;
     }
     write!(code, "            ) {{\n")?;
@@ -131,10 +147,10 @@ mod _gvariant_macro_{spec} {{
     write!(code, "            (\n")?;
     for (n, child) in children.iter().enumerate() {
         write!(code, "                ")?;
-        marker_type(child, &mut code)?;
+        marker_type(child, code)?;
         write!(
             code,
-            "::_mark(&self.data.as_aligned()[..end_{n}][offset_{n}..]),\n",
+            "::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),\n",
             n = n
         )?;
     }
@@ -145,37 +161,8 @@ mod _gvariant_macro_{spec} {{
     }}
 "
     )?;
-    if size.is_some() {
-        write_packed_struct(spec, children.as_ref(), &mut code)?;
-        write!(
-            code,
-            "
-            impl Marker{spec} {{
-                pub fn as_struct(&self) -> &Structure{spec} {{
-                    if let Ok(x) = ::gvariant::casting::try_cast_slice_to(&self.data) {{
-                        x
-                    }} else {{
-                        Structure{spec}::default_ref()
-                    }}
-                }}
-            }}
-            impl ::gvariant::RustType for Marker{spec} {{
-                type RefType = Structure{spec};
-                fn default_ref() -> &'static Self::RefType {{
-                    &Structure{spec}::default_ref()
-                }}
-            }}",
-            spec = escape(spec.to_string())
-        )?;
-    }
 
-    write!(
-        code,
-        "
-}}
-"
-    )?;
-    Ok(String::from_utf8(code)?)
+    Ok(())
 }
 
 pub(crate) fn escape(x: String) -> String {
@@ -220,7 +207,7 @@ fn align_of(t: &GVariantType) -> usize {
     }
 }
 
-fn size_of(t: &GVariantType) -> Option<usize> {
+pub(crate) fn size_of(t: &GVariantType) -> Option<usize> {
     match t {
         GVariantType::B => Some(1),
         GVariantType::Y => Some(1),
@@ -244,7 +231,7 @@ fn size_of(t: &GVariantType) -> Option<usize> {
                 // for structures of the unit type or structures containing
                 // only such structures (recursively). This problem issolved by
                 // arbitrary declaring that the serialised encoding of an
-                // instance of the unit typeis a single zero byte (size 1).
+                // instance of the unit type is a single zero byte (size 1).
                 return Some(1);
             }
             for t in subtypes {
@@ -315,35 +302,7 @@ fn generate_table(children: &[GVariantType]) -> Vec<(isize, usize, u8, usize)> {
             c = 0;
         }
     }
-    return table;
-}
-
-struct RustType<'a>(&'a GVariantType);
-impl<'a> Display for RustType<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            GVariantType::B => write!(f, "::gvariant::GVariantBool"),
-            GVariantType::Y => write!(f, "u8"),
-            GVariantType::N => write!(f, "i16"),
-            GVariantType::Q => write!(f, "u16"),
-            GVariantType::I => write!(f, "i32"),
-            GVariantType::U => write!(f, "u32"),
-            GVariantType::X => write!(f, "i64"),
-            GVariantType::T => write!(f, "u64"),
-            GVariantType::D => write!(f, "f64"),
-            GVariantType::S | GVariantType::O | GVariantType::G => write!(f, "::gvariant::S"),
-            GVariantType::V => write!(f, "::gvariant::marker::V"),
-            GVariantType::A(_) => todo!(),
-            GVariantType::M(_) => todo!(),
-            GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
-                if let Some(_) = size_of(&self.0) {
-                    write!(f, "Structure{}", escape(self.0.to_string()))
-                } else {
-                    todo!()
-                }
-            }
-        }
-    }
+    table
 }
 
 fn write_packed_struct(
@@ -352,15 +311,20 @@ fn write_packed_struct(
     out: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn Error>> {
     writeln!(out, "#[derive(Default,Debug,Copy,Clone)]")?;
-    writeln!(out, "#[repr(align({}))]", align_of(gv))?;
+    writeln!(out, "#[repr(C)]")?;
     let escaped = escape(gv.to_string());
 
     // This is only called for fixed-size structures
     writeln!(out, "pub(crate) struct Structure{} {{", escaped)?;
 
     let mut field_arglist = vec![];
+    let mut get_fields = vec![];
+    let mut tuple_fields = vec![];
     let mut set_fields = "".to_string();
+    let mut eq = vec![];
     let mut defaults = vec![];
+    let mut types = vec![];
+
     let mut last_end = 0;
     let mut padding_count = 0;
     for (n, (child, &(_, a, b, c))) in children
@@ -379,12 +343,18 @@ fn write_packed_struct(
             ));
             padding_count += 1;
         }
-        let rust_type = format!("{}", RustType(&child));
+        let mut rust_type = vec![];
+        marker_type(&child, &mut rust_type).unwrap();
+        let rust_type: String = String::from_utf8(rust_type).unwrap();
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
         writeln!(out, "    pub field_{} : {},", n, rust_type)?;
         field_arglist.push(format!("field_{} : {}", n, rust_type));
+        get_fields.push(format!("self.field_{}", n));
+        tuple_fields.push(format!("value.{}", n));
+        types.push(rust_type);
         set_fields.push_str(format!("field_{} : field_{},\n", n, n).as_str());
         defaults.push("0".to_string());
+        eq.push(format!("self.field_{n} == other.field_{n}", n = n));
         last_end = end;
     }
     let padding = size_of(gv).unwrap() - last_end;
@@ -398,25 +368,58 @@ fn write_packed_struct(
     writeln!(
         out,
         "}}
-        unsafe impl AllBitPatternsValid for Structure{escaped} {{}}
-        unsafe impl AlignOf for Structure{escaped} {{
+        unsafe impl ::gvariant::casting::AllBitPatternsValid for Structure{escaped} {{}}
+        unsafe impl ::gvariant::casting::AlignOf for Structure{escaped} {{
             type AlignOf = ::gvariant::aligned_bytes::A{align};
         }}
         impl Structure{escaped} {{
             pub const fn new({field_arglist}) -> Structure{escaped} {{
                 Structure{escaped} {{ {set_fields} }}
             }}
-            pub fn default_ref() -> &'static Self {{
+            pub fn to_tuple(self) -> ({tuple}) {{
+                ({get_fields})
+            }}
+            pub fn from_tuple(value : ({tuple})) -> Self {{
+                Self::new({tuple_fields})
+            }}
+        }}
+        impl ::gvariant::Cast for Structure{escaped} {{
+            fn default_ref() -> &'static Self {{
                 static s : Structure{escaped} = Structure{escaped}::new({defaults});
                 &s
+            }}
+            fn try_from_aligned_slice(slice:&::gvariant::aligned_bytes::AlignedSlice<Self::AlignOf>) -> Result<&Self, ::gvariant::casting::WrongSize> {{
+                ::gvariant::casting::try_cast_slice_to::<Self>(slice)
+            }}
+            fn try_from_aligned_slice_mut(slice:&mut ::gvariant::aligned_bytes::AlignedSlice<Self::AlignOf>) -> Result<&mut Self, ::gvariant::casting::WrongSize> {{
+                ::gvariant::casting::try_cast_slice_to_mut::<Self>(slice)
+            }}
+        }}
+        impl PartialEq for Structure{escaped} {{
+            fn eq(&self, other: &Self) -> bool {{
+                {eq}
+            }}
+        }}
+        impl From<({tuple})> for Structure{escaped} {{
+            fn from(value : ({tuple})) -> Self {{
+                Self::from_tuple(value)
+            }}
+        }}
+        impl From<Structure{escaped}> for ({tuple}) {{
+            fn from(value : Structure{escaped}) -> Self {{
+                value.to_tuple()
             }}
         }}
         ",
         escaped = escaped,
         align = align_of(gv),
+        get_fields = get_fields.join(", "),
+        tuple_fields = tuple_fields.join(", "),
         field_arglist = field_arglist.join(", "),
         set_fields = set_fields,
         defaults = defaults.join(", "),
+        eq = eq.join(" && "),
+        tuple = types.join(", ")
     )?;
 
     Ok(())

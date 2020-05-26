@@ -19,6 +19,9 @@ pub unsafe trait AllBitPatternsValid {
 pub unsafe trait AlignOf {
     type AlignOf: aligned_bytes::Alignment;
 }
+unsafe impl<T: AlignOf> AlignOf for [T] {
+    type AlignOf = T::AlignOf;
+}
 
 #[derive(Debug)]
 pub struct WrongSize {}
@@ -54,12 +57,8 @@ pub(crate) fn cast_slice<'a, A: aligned_bytes::Alignment, T: AllBitPatternsValid
     }
 }
 
-pub(crate) fn try_cast_slice_to<
-    'a,
-    A: aligned_bytes::Alignment,
-    T: AlignOf + AllBitPatternsValid,
->(
-    s: &'a AlignedSlice<A>,
+pub fn try_cast_slice_to<'a, T: AlignOf + AllBitPatternsValid>(
+    s: &'a AlignedSlice<T::AlignOf>,
 ) -> Result<&'a T, WrongSize> {
     if std::mem::size_of::<T>() == s.len() {
         debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
@@ -69,12 +68,8 @@ pub(crate) fn try_cast_slice_to<
     }
 }
 
-pub(crate) fn try_cast_slice_to_mut<
-    'a,
-    A: aligned_bytes::Alignment,
-    T: AlignOf + AllBitPatternsValid,
->(
-    s: &'a mut AlignedSlice<A>,
+pub fn try_cast_slice_to_mut<'a, T: AlignOf + AllBitPatternsValid>(
+    s: &'a mut AlignedSlice<T::AlignOf>,
 ) -> Result<&'a mut T, WrongSize> {
     if std::mem::size_of::<T>() == s.len() {
         debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
@@ -124,3 +119,4 @@ unsafe_fixed_bytes_to_type!(u32, 4, aligned_bytes::A4);
 unsafe_fixed_bytes_to_type!(i64, 8, aligned_bytes::A8);
 unsafe_fixed_bytes_to_type!(u64, 8, aligned_bytes::A8);
 unsafe_fixed_bytes_to_type!(f64, 8, aligned_bytes::A8);
+unsafe impl<T: AllBitPatternsValid> AllBitPatternsValid for [T] {}

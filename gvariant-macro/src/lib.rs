@@ -4,7 +4,7 @@ use std::error::Error;
 
 mod generate_impl;
 mod type_parser;
-use generate_impl::escape;
+use generate_impl::{escape, size_of};
 
 use type_parser::GVariantType;
 
@@ -47,34 +47,44 @@ fn type_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
     Ok(String::from_utf8(code)?)
 }
 
-fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result<()> {
+pub(crate) fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result<()> {
     match t {
-        GVariantType::B => write!(f, "::gvariant::marker::B"),
-        GVariantType::Y => write!(f, "::gvariant::marker::Y"),
-        GVariantType::N => write!(f, "::gvariant::marker::N"),
-        GVariantType::Q => write!(f, "::gvariant::marker::Q"),
-        GVariantType::I => write!(f, "::gvariant::marker::I"),
-        GVariantType::U => write!(f, "::gvariant::marker::U"),
-        GVariantType::X => write!(f, "::gvariant::marker::X"),
-        GVariantType::T => write!(f, "::gvariant::marker::T"),
-        GVariantType::D => write!(f, "::gvariant::marker::D"),
-        GVariantType::S => write!(f, "::gvariant::marker::S"),
-        GVariantType::O => write!(f, "::gvariant::marker::O"),
-        GVariantType::G => write!(f, "::gvariant::marker::G"),
-        GVariantType::V => write!(f, "::gvariant::marker::V"),
-        GVariantType::A(t) => {
-            write!(f, "::gvariant::marker::A::<")?;
-            marker_type(t, f)?;
-            write!(f, ">")
-        }
+        GVariantType::B => write!(f, "::gvariant::Bool"),
+        GVariantType::Y => write!(f, "u8"),
+        GVariantType::N => write!(f, "i16"),
+        GVariantType::Q => write!(f, "u16"),
+        GVariantType::I => write!(f, "i32"),
+        GVariantType::U => write!(f, "u32"),
+        GVariantType::X => write!(f, "i64"),
+        GVariantType::T => write!(f, "u64"),
+        GVariantType::D => write!(f, "f64"),
+        GVariantType::S => write!(f, "::gvariant::Str"),
+        GVariantType::O => write!(f, "::gvariant::Str"),
+        GVariantType::G => write!(f, "::gvariant::Str"),
+        GVariantType::V => write!(f, "::gvariant::Variant"),
+        GVariantType::A(t) => match size_of(t) {
+            None => {
+                write!(f, "::gvariant::NonFixedWidthArray::<")?;
+                marker_type(t, f)?;
+                write!(f, ">")
+            }
+            Some(_) => {
+                write!(f, "[")?;
+                marker_type(t, f)?;
+                write!(f, "]")
+            }
+        },
         GVariantType::M(t) => {
-            write!(f, "::gvariant::marker::M::<")?;
+            match size_of(t) {
+                None => write!(f, "::gvariant::MaybeNonFixedSize::<")?,
+                Some(_) => write!(f, "::gvariant::MaybeFixedSize::<")?,
+            };
             marker_type(t, f)?;
             write!(f, ">")
         }
         GVariantType::Tuple(_) | GVariantType::DictItem(_) => write!(
             f,
-            "_gvariant_macro_{name}::Marker{name}",
+            "_gvariant_macro_{name}::Structure{name}",
             name = escape(t.to_string())
         ),
     }
