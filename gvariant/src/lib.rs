@@ -131,8 +131,15 @@ impl_cast_for!(u64, 0);
 impl_cast_for!(i64, 0);
 impl_cast_for!(f64, 0.);
 
-// Array of fixed size types
-
+/// Type with same representation as GVariant "s", "o" and "g" types
+///
+/// This is the type returned by:
+///
+///     gv!("s").cast(data)
+///
+/// We can't use Rust's `str` type because, although UTF-8 is "expected and
+/// encouraged" it is not guaranteed. We can't use `&[u8]` here because GVariant
+/// strings always end with a NUL byte.
 #[derive(Debug, RefCast)]
 #[repr(transparent)]
 pub struct Str {
@@ -140,20 +147,64 @@ pub struct Str {
 }
 
 impl Str {
-    pub fn to_bytes(&self) -> &[u8] {
+    /// Convert `&Str` to `&[u8]`
+    ///
+    /// This will give the same result as `to_bytes()` for normal data, but
+    /// unlike `to_bytes()` it should be 0-cost.
+    ///
+    /// The result of this function will deviate from the GVariant specification
+    /// if the data contains embedded NULs.  The spec says:
+    ///
+    /// > **2.7.3 Handling Non-Normal Serialised Data**
+    /// >
+    /// >**String with Embedded Nul**
+    /// >
+    /// > If a string has a nul character as its final byte, but also contains
+    /// > another nul character before this final terminator, the value of the
+    /// > string is taken to be the part of the string that precedes the embedded
+    /// > nul. This means that obtaining a C pointer to a string is still a
+    /// > constant time operation.
+    ///
+    /// Instead this function will return the data with the embedded NULs intact
+    /// (excluding the final NUL byte)
+    pub fn to_bytes_non_conformant(&self) -> &[u8] {
         let d: &[u8] = self.data.as_ref();
         match d.last() {
             Some(b'\0') => &d[..d.len() - 1],
             _ => b"",
         }
     }
+    /// Convert `&Str` to `&[u8]`
+    ///
+    /// To handle non-normal data we must scanning the contents of the buffer
+    /// for NUL bytes.  So the performance of this function is linear with
+    /// string length.  If this is unacceptable for your use-case and you know
+    /// you'll be dealing with normal data use `to_bytes_non_conformant`.
+    pub fn to_bytes(&self) -> &[u8] {
+        match self.find_nul() {
+            Some(n) => &self.data.as_ref()[..n],
+            None => b""
+        }
+    }
+    /// Convert `&Str` to `&std::ffi::CStr`
+    ///
+    /// This currently requires scanning the contents of the buffer for NUL
+    /// bytes. So the performance of this function is currently linear with
+    /// string length.  This could be changed in the future to be 0-cost if
+    /// `std::ffi::CStr::from_ptr` is changed similarly.
     pub fn to_cstr(&self) -> &CStr {
-        let mut d: &[u8] = self.data.as_ref();
+        CStr::from_bytes_with_nul(match self.find_nul() {
+            Some(n) => &self.data.as_ref()[..=n],
+            None => b"\0"
+        }).unwrap()
+    }
+    fn find_nul(&self) -> Option<usize> {
+        let d: &[u8] = self.data.as_ref();
         match d.last() {
             Some(b'\0') => (),
-            _ => d = b"\0",
+            _ => return None,
         }
-        CStr::from_bytes_with_nul(&d[..=d.iter().position(|x| *x == b'\0').unwrap()]).unwrap()
+        Some(d.iter().position(|x| *x == b'\0').unwrap())
     }
 }
 unsafe impl AllBitPatternsValid for Str {}
