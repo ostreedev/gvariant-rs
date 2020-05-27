@@ -45,6 +45,7 @@ library may use const-generics, once they are available in stable rust.
 ### TODO
 
 * Implement support for dict items
+* Add no-std and no-alloc support
 * Fuzz testing - compare against the GLib version
 
 ## Deviations from the Specification
