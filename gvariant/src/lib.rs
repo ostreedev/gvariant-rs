@@ -599,12 +599,12 @@ impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArr
 ///     gv!("mi").cast(data)
 ///     gv!("m(yi)").cast(data)
 ///
-/// Rust's built in `Option` doesn't have any specified byte representation so
+/// Rust's built in [`Option`] doesn't have any specified byte representation so
 /// we need our own type here.
 ///
 /// Maybes are encoded differently depending on if their element type is
-/// fixed-sized or not.  `MaybeNonFixedSize` is used when the contained size is
-/// non-fixed, but it implements the same interface as this type
+/// fixed-sized or not.  [`MaybeNonFixedSize`] is used when the contained size
+/// is non-fixed, but it implements the same interface as this type
 ///
 /// You probably just want to call `.to_option()` on this type.
 
@@ -615,7 +615,10 @@ pub struct MaybeFixedSize<T: Cast> {
     data: AlignedSlice<T::AlignOf>,
 }
 impl<T: Cast> MaybeFixedSize<T> {
-    /// Convert self to a standard Rust `Option` type
+    /// Convert to a rust native [`Option`] type.
+    ///
+    /// Note: this doesn't copy the data, it returns an option to a reference to
+    /// the underlying data.
     pub fn to_option(&self) -> Option<&T> {
         // 2.5.2.1 Maybe of a Fixed-Sized Element
         //
@@ -687,11 +690,11 @@ impl<T: Cast + AlignOf> Cast for MaybeFixedSize<T> {
 ///     gv!("mmi").cast(data)
 ///     gv!("m(ias)").cast(data)
 ///
-/// Rust's built in `Option` doesn't have any specified byte representation so
+/// Rust's built in [`Option`] doesn't have any specified byte representation so
 /// we need our own type here.
 ///
 /// Maybes are encoded differently depending on if their element type is
-/// fixed-sized or not.  `MaybeFixedSize` is used when the contained size is
+/// fixed-sized or not.  [`MaybeFixedSize`] is used when the contained size is
 /// fixed, but it implements the same interface as this type.
 
 #[derive(Debug, RefCast)]
@@ -701,6 +704,10 @@ pub struct MaybeNonFixedSize<T: Cast + ?Sized> {
     data: AlignedSlice<T::AlignOf>,
 }
 impl<T: Cast + ?Sized> MaybeNonFixedSize<T> {
+    /// Convert to a rust native [`Option`] type.
+    ///
+    /// Note: this doesn't copy the data, it returns an option to a reference to
+    /// the underlying data.
     pub fn to_option(&self) -> Option<&T> {
         if self.data.is_empty() {
             // #### 2.5.2.2 Maybe of a Non-Fixed-Sized Element
@@ -769,9 +776,9 @@ impl<T: Cast + PartialEq> PartialEq<MaybeNonFixedSize<T>> for Option<&T> {
 ///
 ///     gv!("b").cast(b"\0".as_aligned())
 ///
-/// Rust's built in bool doesn't have the same representation as GVariant's, so
-/// we need our own type here.  Rust's must either be `0x00` (`false`) or `0x01`
-/// (`true`), while with GVariant any value in the range `0x01..=0xFF` is
+/// Rust's built in [`bool`] doesn't have the same representation as GVariant's,
+/// so we need our own type here.  Rust's must either be `0x00` (`false`) or
+/// `0x01` (`true`), while with GVariant any value in the range `0x01..=0xFF` is
 /// `true`.
 #[derive(Debug, RefCast)]
 #[repr(transparent)]
