@@ -3,12 +3,11 @@ use std::io::Write;
 
 use crate::{
     marker_type,
-    type_parser::{one, GVariantType},
+    type_parser::GVariantType,
 };
 
-pub(crate) fn generate_types(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
-    let spec = one(gv_typestr)?;
-    Ok(match &spec {
+pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
+    Ok(match spec {
         GVariantType::Tuple(children) => generate_tuple(&spec, children)?,
         GVariantType::DictItem(_) => todo!(),
         // Everything else is a builtin
@@ -429,6 +428,7 @@ fn align(off: usize, alignment: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::type_parser::one;
 
     #[test]
     fn test_alignment() {

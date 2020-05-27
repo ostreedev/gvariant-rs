@@ -7,7 +7,7 @@ mod type_parser;
 use generate_impl::{escape, size_of};
 use syn::{parse_macro_input, LitStr};
 
-use type_parser::GVariantType;
+use type_parser::{one, GVariantType};
 
 #[proc_macro]
 pub fn gv(input: TokenStream) -> TokenStream {
@@ -18,7 +18,7 @@ pub fn gv(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn define_gv(input: TokenStream) -> TokenStream {
     let typestr = parse_macro_input!(input as LitStr).value();
-    generate_impl::generate_types(&typestr)
+    generate_impl::generate_types(&one(typestr.as_ref()).unwrap())
         .unwrap()
         .parse()
         .unwrap()
