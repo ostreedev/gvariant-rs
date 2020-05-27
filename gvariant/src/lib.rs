@@ -1,8 +1,7 @@
 use std::{
     convert::TryInto,
-    error::Error,
     ffi::CStr,
-    fmt::{Debug, Display},
+    fmt::Debug,
     marker::PhantomData,
 };
 
@@ -307,18 +306,6 @@ impl Variant {
         }
     }
 }
-
-#[derive(Debug)]
-pub enum NonNormal {
-    NotNullTerminated,
-    WrongSize,
-}
-impl Display for NonNormal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "GVariant data not in normal form: {:?}", self)
-    }
-}
-impl Error for NonNormal {}
 
 // #### 2.5.3.1 Fixed Width Arrays
 //
