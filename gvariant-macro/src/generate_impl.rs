@@ -35,7 +35,7 @@ fn write_non_fixed_size_structure(
     code: &mut impl Write,
 ) -> Result<(), Box<dyn Error>> {
     let alignment = align_of(&spec);
-    let n_frames: usize = children.iter().filter(|x| size_of(x).is_some()).count();
+    let n_frames: usize = children.iter().filter(|x| size_of(x).is_none()).count();
     // After all of the items have been added, a framing offset is appended, in
     // reverse order, for each non-fixed-sized item that is not the last item in
     // the structure.
@@ -89,8 +89,7 @@ fn write_non_fixed_size_structure(
         writeln!(
             code,
             "
-            let osz = ::gvariant::offset_size(self.data.len());
-            let frame_offset_offset = self.data.len() - osz as usize;"
+            let osz = ::gvariant::offset_size(self.data.len());"
         )?;
     }
     for ((n, child), (i, a, b, c)) in children.iter().enumerate().zip(generate_table(children)) {
@@ -111,7 +110,7 @@ fn write_non_fixed_size_structure(
                 "self.data.len()".to_string()
             } else {
                 format!(
-                    "self.data.len() - osz * {n_frame_offsets}",
+                    "self.data.len() - osz as usize * {n_frame_offsets}",
                     n_frame_offsets = n_frame_offsets
                 )
             }
