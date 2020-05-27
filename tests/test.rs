@@ -41,13 +41,12 @@ fn test_spec_examples() {
     // Note: This is another example where I think there is a bug in the
     // spec. I've added \x0d here as an additional framing offset of the
     // `as`. This gives consistent results with the GLib implementation.
-    /*
     let ns = gv!("((ys)as)").cast(b"ican\0has\0strings?\0\x04\x0d\x05".as_aligned());
     assert_eq!(*ns.to_tuple().0.to_tuple().0, b'i');
     assert_eq!(ns.to_tuple().0.to_tuple().1.to_bytes(), b"can");
     let v: Vec<_> = ns.to_tuple().1.into_iter().map(|x| x.to_bytes()).collect();
     assert_eq!(v, &[b"has".as_ref(), b"strings?"]);
-    */
+
     // Simple Structure Example
     //
     // With type '(yy)':

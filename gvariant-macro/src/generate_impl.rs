@@ -5,7 +5,14 @@ use crate::{marker_type, type_parser::GVariantType};
 
 pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
     Ok(match spec {
-        GVariantType::Tuple(children) => generate_tuple(&spec, children)?,
+        GVariantType::Tuple(children) => {
+            let mut out = "".to_string();
+            for child in children {
+                out += generate_types(child)?.as_ref();
+            }
+            out += generate_tuple(&spec, children)?.as_ref();
+            out
+        }
         GVariantType::DictItem(_) => todo!(),
         GVariantType::A(x) => generate_types(x)?,
         GVariantType::M(x) => generate_types(x)?,
