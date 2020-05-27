@@ -613,6 +613,8 @@ impl<T: Cast + PartialEq + ?Sized> PartialEq for MaybeNonFixedSize<T> {
     }
 }
 
+/// Type with same representation as GVariant "b" type
+///
 /// Rust's built in bool doesn't have the same representation as GVariant's, so
 /// we need our own type here.  Rust's must either be 0x00 (false) or 0x01
 /// (true), while with GVariant any value in the range 0x01..=0xFF is true.
@@ -627,6 +629,16 @@ impl Bool {
 unsafe impl AllBitPatternsValid for Bool {}
 unsafe impl AlignOf for Bool {
     type AlignOf = aligned_bytes::A1;
+}
+impl From<Bool> for bool {
+    fn from(b: Bool) -> Self {
+        b.to_bool()
+    }
+}
+impl PartialEq for Bool {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_bool() == other.to_bool()
+    }
 }
 
 pub fn nth_last_frame_offset(data: &[u8], osz: OffsetSize, n: usize) -> usize {
