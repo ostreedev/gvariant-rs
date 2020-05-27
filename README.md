@@ -45,6 +45,7 @@ library may use const-generics, once they are available in stable rust.
 ### TODO
 
 * Implement support for the variant type
+* Implement support for dict items
 * Fuzz testing - compare against the GLib version
 
 ## Deviations from the Specification
