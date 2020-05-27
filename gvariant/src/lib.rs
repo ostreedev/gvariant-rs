@@ -18,7 +18,7 @@ use aligned_bytes::{empty_aligned, AlignedSlice, AsAligned, A8};
 use casting::{AlignOf, AllBitPatternsValid};
 
 #[doc(hidden)]
-pub use gvariant_macro::{define_gv as _define_gv,gv_type as _gv_type};
+pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type};
 
 pub trait Marker {
     type Type: Cast + ?Sized;
