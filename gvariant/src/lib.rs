@@ -130,7 +130,7 @@ impl_cast_for!(f64, 0.);
 
 // Array of fixed size types
 
-#[derive(RefCast)]
+#[derive(Debug, RefCast)]
 #[repr(transparent)]
 pub struct Str {
     data: [u8],
