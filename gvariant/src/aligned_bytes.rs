@@ -115,6 +115,15 @@ pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
     }
 }
 
+impl<A: Alignment> AlignedSlice<A> {
+    pub fn split_at(&self, mid: usize) -> (&AlignedSlice<A>, &[u8]) {
+        let (before, after) = self.data.split_at(mid);
+        // This is safe because before.as_ptr() will be the same as
+        // self.data.as_ptr(), so must still be aligned.
+        (unsafe { to_alignedslice_unchecked(before) }, after)
+    }
+}
+
 impl<A: Alignment> Deref for AlignedSlice<A> {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
@@ -239,6 +248,12 @@ where
     }
 }
 
+impl<A: Alignment> Index<usize> for AlignedSlice<A> {
+    type Output = u8;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.data[index]
+    }
+}
 impl<A: Alignment> Index<RangeTo<usize>> for AlignedSlice<A> {
     type Output = AlignedSlice<A>;
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {

@@ -14,7 +14,7 @@ use offset::align_offset;
 pub mod casting;
 pub mod offset;
 
-use aligned_bytes::{empty_aligned, AlignedSlice};
+use aligned_bytes::{empty_aligned, AlignedSlice, AsAligned, A8};
 use casting::{AlignOf, AllBitPatternsValid};
 
 pub use gvariant_macro::{define_gv, gv_type};
@@ -67,10 +67,12 @@ macro_rules! gv {
         // TODO: I'd much rather that this macro returns a type, rather than
         // a value.  That way getting a gvariant looks like:
         //
+        //     let a : <gv!("as")> = v.get()?
         //     let b = <gv!("(yii)")>::cast(bytes);
         //
         // rather than:
         //
+        //     let a = v.get(gv!("as"))?
         //     let b = gv!("(yii)").cast(bytes);
         //
         // The former makes it much clearer what's happening at compile time
@@ -180,7 +182,79 @@ impl PartialEq for Str {
     }
 }
 
-pub struct Variant {}
+/// The GVariant Variant **v** type
+///
+/// The Variant type can contain any GVariant value.
+#[derive(Debug, RefCast)]
+#[repr(transparent)]
+pub struct Variant(AlignedSlice<A8>);
+unsafe impl AlignOf for Variant {
+    type AlignOf = A8;
+}
+unsafe impl AllBitPatternsValid for Variant {}
+impl Cast for Variant {
+    fn default_ref() -> &'static Self {
+        Self::ref_cast(empty_aligned())
+    }
+    fn try_from_aligned_slice(
+        slice: &AlignedSlice<Self::AlignOf>,
+    ) -> Result<&Self, casting::WrongSize> {
+        Ok(Self::ref_cast(slice))
+    }
+    fn try_from_aligned_slice_mut(
+        slice: &mut AlignedSlice<Self::AlignOf>,
+    ) -> Result<&mut Self, casting::WrongSize> {
+        Ok(Self::ref_cast_mut(slice))
+    }
+}
+
+impl Variant {
+    /// Get the value from the variant, if it matches the type passed in.
+    ///
+    /// Example:
+    ///
+    ///     let a = v.get(gv!("ai"))?
+    ///     // a now has type &[i32]
+    pub fn get<M: Marker>(&self, m: M) -> Option<&M::Type>
+    where
+        AlignedSlice<A8>: AsAligned<<M::Type as AlignOf>::AlignOf>,
+    {
+        let (typestr, data) = self.split();
+        if typestr == M::TYPESTR {
+            Some(m.cast(data.as_aligned()))
+        } else {
+            None
+        }
+    }
+    /// Destructures the variant into (typestr, data).
+    ///
+    /// Note: typestr is not guaranteed to be a valid GVariant type.
+    ///
+    /// Example use:
+    ///
+    ///     match v.split() {
+    ///         ("(is)", data) => {
+    ///             let s = <gv_type!(b"(is)")>::from_aligned_bytes(data.as_aligned());
+    ///             // Do something with s
+    ///         }
+    ///     }
+    pub fn split(&self) -> (&[u8], &AlignedSlice<A8>) {
+        // Variants are serialised by storing the serialised data of the child,
+        // plus a zero byte, plus the type string of the child.
+        let mut split_pos = None;
+        for (n, c) in self.0.rchunks_exact(1).enumerate() {
+            if c[0] == b'\0' {
+                split_pos = Some(self.0.len() - n);
+            }
+        }
+        if let Some(mid) = split_pos {
+            let (data, ty) = self.0.split_at(mid);
+            (&ty[1..], data)
+        } else {
+            (b"()", empty_aligned())
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum NonNormal {
@@ -721,5 +795,15 @@ mod tests {
             Str::from_aligned_slice(b"hello world\0".as_aligned()).to_bytes(),
             b"hello world"
         );
+    }
+
+    #[test]
+    fn test_variant() {
+        let data = copy_to_align(b"\x04\x00\x00n");
+        let v = Variant::from_aligned_slice(data.as_ref());
+        match v.split() {
+            (b"n", d) => assert_eq!(*i16::from_aligned_slice(d.as_aligned()), 4),
+            _ => panic!("Incorrect type"),
+        }
     }
 }
