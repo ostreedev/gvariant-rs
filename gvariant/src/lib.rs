@@ -17,7 +17,8 @@ pub mod offset;
 use aligned_bytes::{empty_aligned, AlignedSlice, AsAligned, A8};
 use casting::{AlignOf, AllBitPatternsValid};
 
-pub use gvariant_macro::{define_gv, gv_type};
+#[doc(hidden)]
+pub use gvariant_macro::{define_gv as _define_gv,gv_type as _gv_type};
 
 pub trait Marker {
     type Type: Cast + ?Sized;
@@ -55,12 +56,12 @@ macro_rules! gv {
             use $crate::aligned_bytes::{AlignedSlice, AsAligned};
             use $crate::casting::{AlignOf, AllBitPatternsValid};
             use $crate::offset::{align_offset, AlignedOffset};
-            use $crate::Cast;
+            use $crate::{Cast, _define_gv, _gv_type};
 
-            $crate::define_gv!($typestr);
+            _define_gv!($typestr);
             pub(crate) struct Marker();
             impl $crate::Marker for Marker {
-                type Type = $crate::gv_type!($typestr);
+                type Type = _gv_type!($typestr);
                 const TYPESTR: &'static [u8] = $typestr.as_bytes();
             }
         };
