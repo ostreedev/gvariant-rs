@@ -194,7 +194,7 @@ impl_cast_for!(f64, 0.);
 /// We can't use Rust's `str` type because, although UTF-8 is "expected and
 /// encouraged" it is not guaranteed. We can't use `&[u8]` here because GVariant
 /// strings always end with a NUL byte.
-#[derive(Debug, RefCast)]
+#[derive(Debug, RefCast, Eq)]
 #[repr(transparent)]
 pub struct Str {
     data: [u8],
@@ -285,6 +285,16 @@ impl Cast for Str {
 impl PartialEq for Str {
     fn eq(&self, other: &Self) -> bool {
         self.to_cstr() == other.to_cstr()
+    }
+}
+impl PartialEq<[u8]> for Str {
+    fn eq(&self, other: &[u8]) -> bool {
+        self.to_bytes() == other
+    }
+}
+impl PartialEq<Str> for [u8] {
+    fn eq(&self, other: &Str) -> bool {
+        self == other.to_bytes()
     }
 }
 
