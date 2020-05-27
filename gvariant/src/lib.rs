@@ -497,6 +497,24 @@ impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArr
 // The alignment of a maybe type is always equal to the alignment of its element
 // type.
 
+/// Type with same representation as GVariant "mX" type where X is any fixed
+/// size type
+///
+/// This is the type returned by:
+///
+///     gv!("mb").cast(data)
+///     gv!("mi").cast(data)
+///     gv!("m(yi)").cast(data)
+///
+/// Rust's built in `Option` doesn't have any specified byte representation so
+/// we need our own type here.
+///
+/// Maybes are encoded differently depending on if their element type is
+/// fixed-sized or not.  `MaybeNonFixedSize` is used when the contained size is
+/// non-fixed, but it implements the same interface as this type
+///
+/// You probably just want to call `.to_option()` on this type.
+
 #[repr(transparent)]
 #[derive(Debug, RefCast)]
 pub struct MaybeFixedSize<T: Cast> {
@@ -504,6 +522,7 @@ pub struct MaybeFixedSize<T: Cast> {
     data: AlignedSlice<T::AlignOf>,
 }
 impl<T: Cast> MaybeFixedSize<T> {
+    /// Convert self to a standard Rust `Option` type
     pub fn to_option(&self) -> Option<&T> {
         // 2.5.2.1 Maybe of a Fixed-Sized Element
         //
@@ -533,6 +552,17 @@ impl<T: Cast + PartialEq> PartialEq for MaybeFixedSize<T> {
         self.to_option() == other.to_option()
     }
 }
+impl<T: Cast + Eq> Eq for MaybeFixedSize<T> {}
+impl<T: Cast + PartialEq> PartialEq<Option<&T>> for &MaybeFixedSize<T> {
+    fn eq(&self, other: &Option<&T>) -> bool {
+        self.to_option() == *other
+    }
+}
+impl<T: Cast + PartialEq> PartialEq<&MaybeFixedSize<T>> for Option<&T> {
+    fn eq(&self, other: &&MaybeFixedSize<T>) -> bool {
+        other == self
+    }
+}
 
 unsafe impl<T: Cast> AlignOf for MaybeFixedSize<T> {
     type AlignOf = T::AlignOf;
@@ -554,6 +584,22 @@ impl<T: Cast + AlignOf> Cast for MaybeFixedSize<T> {
         Ok(Self::ref_cast_mut(slice))
     }
 }
+
+/// Type with same representation as GVariant "mX" type where X is any non-fixed
+/// size type
+///
+/// This is the type returned by:
+///
+///     gv!("ms").cast(data)
+///     gv!("mmi").cast(data)
+///     gv!("m(ias)").cast(data)
+///
+/// Rust's built in `Option` doesn't have any specified byte representation so
+/// we need our own type here.
+///
+/// Maybes are encoded differently depending on if their element type is
+/// fixed-sized or not.  `MaybeFixedSize` is used when the contained size is
+/// fixed, but it implements the same interface as this type.
 
 #[derive(Debug, RefCast)]
 #[repr(transparent)]
@@ -612,12 +658,28 @@ impl<T: Cast + PartialEq + ?Sized> PartialEq for MaybeNonFixedSize<T> {
         self.to_option() == other.to_option()
     }
 }
+impl<T: Cast + Eq> Eq for MaybeNonFixedSize<T> {}
+impl<T: Cast + PartialEq> PartialEq<Option<&T>> for MaybeNonFixedSize<T> {
+    fn eq(&self, other: &Option<&T>) -> bool {
+        self.to_option() == *other
+    }
+}
+impl<T: Cast + PartialEq> PartialEq<MaybeNonFixedSize<T>> for Option<&T> {
+    fn eq(&self, other: &MaybeNonFixedSize<T>) -> bool {
+        other == self
+    }
+}
 
 /// Type with same representation as GVariant "b" type
 ///
+/// This is the type returned by:
+///
+///     gv!("b").cast(b"\0".as_aligned())
+///
 /// Rust's built in bool doesn't have the same representation as GVariant's, so
-/// we need our own type here.  Rust's must either be 0x00 (false) or 0x01
-/// (true), while with GVariant any value in the range 0x01..=0xFF is true.
+/// we need our own type here.  Rust's must either be `0x00` (`false`) or `0x01`
+/// (`true`), while with GVariant any value in the range `0x01..=0xFF` is
+/// `true`.
 #[derive(Debug, RefCast)]
 #[repr(transparent)]
 pub struct Bool(u8);
@@ -731,6 +793,21 @@ mod tests {
                 .unwrap()
                 .to_bytes(),
             b"hello world"
+        );
+    }
+    #[test]
+    fn test_fixed_width_maybe() {
+        assert_eq!(
+            MaybeFixedSize::<u8>::from_aligned_slice(b"".as_aligned()),
+            None
+        );
+        assert_eq!(
+            MaybeFixedSize::<u8>::from_aligned_slice(b"\x43".as_aligned()),
+            Some(&0x43)
+        );
+        assert_eq!(
+            MaybeFixedSize::<u8>::from_aligned_slice(b"\x43\0".as_aligned()),
+            None
         );
     }
 
