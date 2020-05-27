@@ -29,10 +29,10 @@ fn test_spec_examples() {
     ]);
     let a = gv!("a(si)").cast(data.as_ref());
     assert_eq!(a.len(), 2);
-    assert_eq!(a[0].split().0.to_bytes(), b"hi");
-    assert_eq!(*a[0].split().1, -2);
-    assert_eq!(a[1].split().0.to_bytes(), b"bye");
-    assert_eq!(*a[1].split().1, -1);
+    assert_eq!(a[0].to_tuple().0.to_bytes(), b"hi");
+    assert_eq!(*a[0].to_tuple().1, -2);
+    assert_eq!(a[1].to_tuple().0.to_bytes(), b"bye");
+    assert_eq!(*a[1].to_tuple().1, -1);
 
     // Nested Structure Example
     //
@@ -43,9 +43,9 @@ fn test_spec_examples() {
     // `as`. This gives consistent results with the GLib implementation.
     /*
     let ns = gv!("((ys)as)").cast(b"ican\0has\0strings?\0\x04\x0d\x05".as_aligned());
-    assert_eq!(*ns.split().0.split().0, b'i');
-    assert_eq!(ns.split().0.split().1, b"can");
-    let v : Vec<_> = ns.split().1.into_iter().map(|x| x.to_bytes()).collect();
+    assert_eq!(*ns.to_tuple().0.to_tuple().0, b'i');
+    assert_eq!(ns.to_tuple().0.to_tuple().1.to_bytes(), b"can");
+    let v: Vec<_> = ns.to_tuple().1.into_iter().map(|x| x.to_bytes()).collect();
     assert_eq!(v, &[b"has".as_ref(), b"strings?"]);
     */
     // Simple Structure Example

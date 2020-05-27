@@ -72,7 +72,7 @@ fn write_non_fixed_size_structure(
         type AlignOf = ::gvariant::aligned_bytes::A{alignment};
     }}
     impl Structure{spec} {{
-        pub fn split(&self) -> (\n",
+        pub fn to_tuple(&self) -> (\n",
         spec = escape(spec.to_string()),
         alignment = alignment,
     )?;
