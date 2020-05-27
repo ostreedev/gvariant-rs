@@ -471,8 +471,14 @@ fn read_last_frame_offset(data: &[u8]) -> (OffsetSize, usize) {
     (osz, read_uint(&data[data.len() - osz as usize..], osz, 0))
 }
 
-// Non-fixed width arrays
-
+/// Type with same representation as GVariant "aX" type where X is any non-fixed
+/// size type
+///
+/// This is similar to a [`slice`][std::slice], but for non-fixed width types,
+/// and implements many of the same methods.  Items can be retrieved by indexing
+/// or iterated over.
+///
+/// For fixed-width types a standard rust slice is used.
 #[derive(RefCast, Debug)]
 #[repr(transparent)]
 pub struct NonFixedWidthArray<T: Cast + ?Sized> {
@@ -500,6 +506,7 @@ impl<T: Cast + ?Sized> Cast for NonFixedWidthArray<T> {
 }
 
 impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
+    /// Returns the number of elements in the array.
     pub fn len(&self) -> usize {
         if self.data.is_empty() {
             0
@@ -518,10 +525,38 @@ impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
             }
         }
     }
+    /// Returns `true` if the array has a length of 0.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Returns an iterator over the array.
+    pub fn iter(&self) -> NonFixedWidthArrayIterator<T> {
+        self.into_iter()
+    }
+    /// Returns the first element of the array, or [`None`] if it is empty.
+    pub fn first(&self) -> Option<&T> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(&self[0])
+        }
+    }
+    /// Returns the last element of the array, or [`None`] if it is empty.
+    pub fn last(&self) -> Option<&T> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(&self[self.len() - 1])
+        }
+    }
 }
+
+/// A iterator over the items of a [`NonFixedWidthArray`]
+///
+/// This struct is created by the [`iter`] method on [`NonFixedWidthArray`].
+/// See its documentation for more.
+///
+/// [`iter`]: NonFixedWidthArray::iter
 pub struct NonFixedWidthArrayIterator<'a, Item: Cast + ?Sized> {
     slice: &'a NonFixedWidthArray<Item>,
     next_start: usize,
@@ -552,6 +587,13 @@ impl<'a, Item: Cast + 'static + ?Sized> Iterator for NonFixedWidthArrayIterator<
                 Some(Item::try_from_aligned_slice(&self.slice.data[..end][start..]).unwrap())
             }
         }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let l = match self.offset_size {
+            OffsetSize::U0 => 0,
+            _ => (self.slice.data.len() - self.offset_idx) / self.offset_size as usize
+        };
+        (l, Some(l))
     }
 }
 
@@ -925,7 +967,11 @@ mod tests {
     fn test_non_fixed_width_array() {
         let a_s = NonFixedWidthArray::<Str>::from_aligned_slice(b"".as_aligned());
         assert_eq!(a_s.len(), 0);
+        assert!(a_s.is_empty());
+        assert_eq!(a_s.first(), None);
+        assert_eq!(a_s.last(), None);
         assert!(a_s.into_iter().collect::<Vec<_>>().is_empty());
+        assert_eq!(a_s.iter().size_hint(), (0, Some(0)));
 
         let a_s =
             NonFixedWidthArray::<Str>::from_aligned_slice(b"hello\0world\0\x06\x0c".as_aligned());
@@ -936,6 +982,16 @@ mod tests {
         );
         assert_eq!(a_s[0].to_bytes(), b"hello");
         assert_eq!(a_s[1].to_bytes(), b"world");
+        assert!(!a_s.is_empty());
+        assert_eq!(a_s.first().unwrap(), b"hello".as_ref());
+        assert_eq!(a_s.last().unwrap(), b"world".as_ref());
+
+        let mut it = a_s.iter();
+        assert_eq!(it.size_hint(), (2, Some(2)));
+        it.next();
+        assert_eq!(it.size_hint(), (1, Some(1)));
+        it.next();
+        assert_eq!(it.size_hint(), (0, Some(0)));
     }
 
     #[test]
