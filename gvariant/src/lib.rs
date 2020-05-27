@@ -19,32 +19,87 @@ use casting::{AlignOf, AllBitPatternsValid};
 #[doc(hidden)]
 pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type};
 
+/// This is the return type of the `gv!` macro.
+///
+/// This acts as a kind of factory trait for GVariant types, creating them from
+/// aligned data using the `cast` method.
+///
+/// Do not implement this trait yourself, `gv!` is responsible for creating the
+/// marker structs that implement this.  Use that instead.
+///
+/// See the documentation of `gv!` for usage examples.
 pub trait Marker {
-    type Type: Cast + ?Sized;
+    /// The typestr that was passed to the `gv!` macro.
     const TYPESTR: &'static [u8];
 
-    // I'd like to remove these two in lieu of t_cast and try_t_cast_mut as the
-    // &self argument really isn't necessary, but see comment below in
-    // macro_rules! gv
-    fn cast<'a>(&self, data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
-        Self::t_cast(data)
-    }
-    fn try_cast_mut<'a>(
-        data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
-    ) -> Result<&'a mut Self::Type, casting::WrongSize> {
-        Self::try_t_cast_mut(data)
-    }
+    /// This type has the same representation in memory as the GVariant type
+    /// with the signature given by `Self::TYPESTR`, and implements `Cast` so it
+    /// can be created from appropriately aligned data.
+    type Type: Cast + ?Sized;
 
-    fn t_cast<'a>(data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
+    // I'd like to remove the `&self` argument as it isn't used, but see comment
+    // below in macro_rules! gv
+
+    /// Cast `data` to the appropriate rust type `Self::Type` for the type
+    /// string `Self::TYPESTR`.
+    fn cast<'a>(&self, data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
         Self::Type::from_aligned_slice(data)
     }
-    fn try_t_cast_mut<'a>(
+
+    /// Cast `data` to the appropriate rust type `Self::Type` for the type
+    /// string `Self::TYPESTR`.
+    fn try_cast_mut<'a>(
         data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
     ) -> Result<&'a mut Self::Type, casting::WrongSize> {
         Self::Type::try_from_aligned_slice_mut(data)
     }
 }
 
+/// Maps from GVariant typestrs to compatible Rust types returning a `Marker`.
+/// This `Marker` can then be used to cast data into that type by calling
+/// `Marker::cast`.
+///
+/// The signature is essentially `fn gv(typestr : &str) -> impl Marker`.
+///
+/// This is the main entrypoint to the library.
+///
+/// Given `data` that you want to interpret as a GVariant of type **(as)** you
+/// write:
+///
+///     gv!("(as)").cast(data)
+///
+/// Similarly if you want to interpret some data in a variant as an **(as)** you
+/// write:
+///
+///     v.get(gv!("(as)"))
+///
+/// The returned marker has a automatically generated type.  `Marker::TYPESTR`
+/// will equal the typestr passed into the `gv!` invocation.  `Marker::Type` is
+/// a type that has the same bit representation as GVariant type passed in.
+///
+/// The types are mapped as follows:
+///
+/// | GVariant Type | Rust Type                                                                                   | Sized                             |
+/// | ------------- | ------------------------------------------------------------------------------------------- | --------------------------------- |
+/// | **b**         | [`Bool`]                                                                                    | Yes                               |
+/// | **y**         | [`u8`]                                                                                      | Yes                               |
+/// | **n**         | [`i16`]                                                                                     | Yes                               |
+/// | **q**         | [`u16`]                                                                                     | Yes                               |
+/// | **i**         | [`i32`]                                                                                     | Yes                               |
+/// | **u**         | [`u32`]                                                                                     | Yes                               |
+/// | **x**         | [`i64`]                                                                                     | Yes                               |
+/// | **t**         | [`u64`]                                                                                     | Yes                               |
+/// | **d**         | [`f64`]                                                                                     | Yes                               |
+/// | **s**         | [`Str`]                                                                                     | No                                |
+/// | **o**         | [`Str`]                                                                                     | No                                |
+/// | **g**         | [`Str`]                                                                                     | No                                |
+/// | **v**         | [`Variant`]                                                                                 | No                                |
+/// | **m**s        | [`MaybeNonFixedSize<Str>`][MaybeNonFixedSize] - and similarly for all non-[`Sized`] types   | No                                |
+/// | **m**i        | [`MaybeFixedSize<i32>`][MaybeFixedSize] - and similarly for all [`Sized`] types             | No                                |
+/// | **a**s        | [`NonFixedWidthArray<Str>`][NonFixedWidthArray] - and similarly for all non-[`Sized`] types | No                                |
+/// | **a**i        | `[i32]` and similarly for all [`Sized`] types                                               | No                                |
+/// | **(sv)**      | Custom struct generated by this macro. Implements `.to_tuple()` method                      | Yes if all children are [`Sized`] |
+/// | **{si}**      | Custom struct generated by this Macro. Implements `.to_tuple()` method                      | Yes if all children are [`Sized`] |
 #[macro_export]
 macro_rules! gv {
     ($typestr:literal) => {{
