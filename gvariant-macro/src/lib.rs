@@ -10,7 +10,7 @@ use syn::{parse_macro_input, LitStr};
 use type_parser::{one, GVariantType};
 
 #[proc_macro]
-pub fn gv(input: TokenStream) -> TokenStream {
+pub fn gv_type(input: TokenStream) -> TokenStream {
     let typestr = parse_macro_input!(input as LitStr).value();
     type_for_typestr(typestr.as_ref()).unwrap().parse().unwrap()
 }
@@ -66,10 +66,8 @@ pub(crate) fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std:
             marker_type(t, f)?;
             write!(f, ">")
         }
-        GVariantType::Tuple(_) | GVariantType::DictItem(_) => write!(
-            f,
-            "_gvariant_macro_{name}::Structure{name}",
-            name = escape(t.to_string())
-        ),
+        GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
+            write!(f, "Structure{name}", name = escape(t.to_string()))
+        }
     }
 }

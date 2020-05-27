@@ -1,15 +1,15 @@
 use std::error::Error;
 use std::io::Write;
 
-use crate::{
-    marker_type,
-    type_parser::GVariantType,
-};
+use crate::{marker_type, type_parser::GVariantType};
 
 pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
     Ok(match spec {
         GVariantType::Tuple(children) => generate_tuple(&spec, children)?,
         GVariantType::DictItem(_) => todo!(),
+        GVariantType::A(x) => generate_types(x)?,
+        GVariantType::M(x) => generate_types(x)?,
+
         // Everything else is a builtin
         _ => "".to_owned(),
     })
@@ -21,17 +21,11 @@ fn generate_tuple(
 ) -> Result<String, Box<dyn Error>> {
     let size = size_of(&spec);
     let mut out = vec![];
-    write!(
-        out,
-        "mod _gvariant_macro_{spec} {{",
-        spec = escape(spec.to_string())
-    )?;
     if size.is_some() {
         write_packed_struct(spec, children, &mut out)
     } else {
         write_non_fixed_size_structure(spec, children, &mut out)
     }?;
-    write!(out, "}}")?;
     Ok(String::from_utf8(out).unwrap())
 }
 
@@ -57,13 +51,6 @@ fn write_non_fixed_size_structure(
     write!(
         code,
         "
-    #[macro_use]
-    use ref_cast::RefCast;
-    use ::gvariant::Cast;
-    use ::gvariant::aligned_bytes::{{AlignedSlice, AsAligned}};
-    use ::gvariant::offset::{{align_offset, AlignedOffset}};
-    use ::gvariant::casting::{{AllBitPatternsValid, AlignOf}};
-
     #[derive(Debug, RefCast)]
     #[repr(transparent)]
     pub(crate) struct Structure{spec} {{

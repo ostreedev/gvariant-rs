@@ -1,26 +1,18 @@
 use gvariant::aligned_bytes::{copy_to_align, AsAligned};
-use gvariant::Cast;
-use gvariant_macro::{define_gv, gv};
+use gvariant::{gv, Marker};
 
 #[test]
 fn test_basic_types() {
     assert_eq!(
-        *<gv!("i")>::from_aligned_slice(&*copy_to_align(&[0x00, 0x00, 0x00, 0x00])),
+        *gv!("i").cast(&*copy_to_align(&[0x00, 0x00, 0x00, 0x00])),
         0
     );
 }
 
-define_gv!("(si)");
-define_gv!("(ys)");
-define_gv!("(yy)");
-define_gv!("(iy)");
-define_gv!("(yi)");
-//define_gv!("((ys)as)");
-
 #[test]
 fn test_spec_examples() {
     let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
-    let (s, i) = <gv!("(si)")>::from_aligned_slice(data.as_ref()).split();
+    let (s, i) = gv!("(si)").cast(data.as_ref()).to_tuple();
     assert_eq!(s.to_bytes(), &*b"foo");
     assert_eq!(*i, -1);
 
@@ -35,7 +27,7 @@ fn test_spec_examples() {
         b'h', b'i', 0, 0, 0xfe, 0xff, 0xff, 0xff, 3, 0, 0, 0, b'b', b'y', b'e', 0, 0xff, 0xff,
         0xff, 0xff, 4, 9, 21,
     ]);
-    let a = <gv!("a(si)")>::from_aligned_slice(data.as_ref());
+    let a = gv!("a(si)").cast(data.as_ref());
     assert_eq!(a.len(), 2);
     assert_eq!(a[0].split().0.to_bytes(), b"hi");
     assert_eq!(*a[0].split().1, -2);
@@ -50,7 +42,7 @@ fn test_spec_examples() {
     // spec. I've added \x0d here as an additional framing offset of the
     // `as`. This gives consistent results with the GLib implementation.
     /*
-    let ns = <gv!("((ys)as)")>::from_aligned_slice(b"ican\0has\0strings?\0\x04\x0d\x05");
+    let ns = gv!("((ys)as)").cast(b"ican\0has\0strings?\0\x04\x0d\x05".as_aligned());
     assert_eq!(*ns.split().0.split().0, b'i');
     assert_eq!(ns.split().0.split().1, b"can");
     let v : Vec<_> = ns.split().1.into_iter().map(|x| x.to_bytes()).collect();
@@ -59,7 +51,7 @@ fn test_spec_examples() {
     // Simple Structure Example
     //
     // With type '(yy)':
-    let s = <gv!("(yy)")>::from_aligned_slice([0x70u8, 0x80].as_aligned());
+    let s = gv!("(yy)").cast([0x70u8, 0x80].as_aligned());
     assert_eq!((s.field_0, s.field_1), (0x70, 0x80));
     assert_eq!(s.to_tuple(), (0x70, 0x80));
 
@@ -67,7 +59,7 @@ fn test_spec_examples() {
     //
     // With type '(iy)':
     let data = copy_to_align(&[0x60u8, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00]);
-    let s = <gv!("(iy)")>::from_aligned_slice(data.as_ref());
+    let s = gv!("(iy)").cast(data.as_ref());
     assert_eq!((s.field_0, s.field_1), (96, 0x70));
     assert_eq!(s.to_tuple(), (96, 0x70));
 
@@ -75,7 +67,7 @@ fn test_spec_examples() {
     //
     // With type '(yi)':
     let data = copy_to_align(&[0x70, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00]);
-    let s = <gv!("(yi)")>::from_aligned_slice(data.as_ref());
+    let s = gv!("(yi)").cast(data.as_ref());
     assert_eq!((s.field_0, s.field_1), (0x70, 96));
     assert_eq!(s.to_tuple(), (0x70, 96));
 
@@ -83,7 +75,8 @@ fn test_spec_examples() {
     //
     // With type 'a(iy)':
     let data = copy_to_align(b"\x60\0\0\0\x70\0\0\0\x88\x02\0\0\xf7\0\0\0");
-    let v: Vec<_> = <gv!("a(iy)")>::from_aligned_slice(&*data)
+    let v: Vec<_> = gv!("a(iy)")
+        .cast(&*data)
         .iter()
         .map(|x| x.to_tuple())
         .collect();
@@ -96,29 +89,29 @@ fn test_non_normal_values() {
 
     // Wrong Size for Fixed Size Value
     assert_eq!(
-        *<gv!("i")>::from_aligned_slice(&*copy_to_align(&[0x7u8, 0x33, 0x90]).as_ref()),
+        *gv!("i").cast(&*copy_to_align(&[0x7u8, 0x33, 0x90]).as_ref()),
         0
     );
 
     // Non-zero Padding Bytes
     let data = copy_to_align(&[0x55u8, 0x66, 0x77, 0x88, 0x02, 0x01, 0x00, 0x00]);
-    let yi = <gv!("(yi)")>::from_aligned_slice(&*data);
+    let yi = gv!("(yi)").cast(&*data);
     assert_eq!(yi.to_tuple(), (0x55, 258));
 
     // Boolean Out of Range
     assert_eq!(
-        <gv!("ab")>::from_aligned_slice(
-            [0x01u8, 0x00, 0x03, 0x04, 0x00, 0x01, 0xff, 0x80, 0x00].as_aligned()
-        )
-        .iter()
-        .map(|x| x.to_bool())
-        .collect::<Vec<_>>(),
+        gv!("ab")
+            .cast([0x01u8, 0x00, 0x03, 0x04, 0x00, 0x01, 0xff, 0x80, 0x00].as_aligned())
+            .iter()
+            .map(|x| x.to_bool())
+            .collect::<Vec<_>>(),
         [true, false, true, true, false, true, true, true, false]
     );
 
     // Unterminated String
     assert_eq!(
-        <gv!("as")>::from_aligned_slice(b"hello world\0\x0b\x0c".as_aligned())
+        gv!("as")
+            .cast(b"hello world\0\x0b\x0c".as_aligned())
             .into_iter()
             .map(|x| x.to_bytes())
             .collect::<Vec<_>>(),
@@ -127,33 +120,30 @@ fn test_non_normal_values() {
 
     // String with Embedded Nul
     assert_eq!(
-        <gv!("s")>::from_aligned_slice(b"foo\0bar\0".as_aligned())
+        gv!("s")
+            .cast(b"foo\0bar\0".as_aligned())
             .to_cstr()
             .to_bytes(),
         b"foo"
     );
 
     // String with embedded nul but none at end
-    assert_eq!(
-        <gv!("s")>::from_aligned_slice(b"foo\0bar".as_aligned()).to_bytes(),
-        b""
-    );
+    assert_eq!(gv!("s").cast(b"foo\0bar".as_aligned()).to_bytes(), b"");
 
     // Wrong size for fixed-size maybe
-    assert!(<gv!("mi")>::from_aligned_slice(&*copy_to_align(&[
-        0x33u8, 0x44, 0x55, 0x66, 0x77, 0x88
-    ]))
-    .to_option()
-    .is_none());
+    assert!(gv!("mi")
+        .cast(&*copy_to_align(&[0x33u8, 0x44, 0x55, 0x66, 0x77, 0x88]))
+        .to_option()
+        .is_none());
 
     // Wrong size for fixed-width array
     assert_eq!(
-        <gv!("a(yy)")>::from_aligned_slice([0x03, 0x04, 0x05, 0x06, 0x07].as_aligned()),
+        gv!("a(yy)").cast([0x03, 0x04, 0x05, 0x06, 0x07].as_aligned()),
         []
     );
 
     // Start or end boundary of child falls outside the container
-    let gv_as = <gv!("as")>::from_aligned_slice(b"foo\0bar\0baz\0\x04\x10\x0c".as_aligned());
+    let gv_as = gv!("as").cast(b"foo\0bar\0baz\0\x04\x10\x0c".as_aligned());
     assert_eq!(
         gv_as.into_iter().map(|x| x.to_bytes()).collect::<Vec<_>>(),
         [b"foo".as_ref(), b"", b""]
@@ -164,7 +154,7 @@ fn test_non_normal_values() {
     assert_eq!(gv_as.len(), 3);
 
     // End boundary precedes start boundary
-    let gv_as = <gv!("as")>::from_aligned_slice(b"foo\0bar\0baz\0\x04\x00\x0c".as_aligned());
+    let gv_as = gv!("as").cast(b"foo\0bar\0baz\0\x04\x00\x0c".as_aligned());
     assert_eq!(
         gv_as
             .into_iter()

@@ -17,6 +17,71 @@ pub mod offset;
 use aligned_bytes::{empty_aligned, AlignedSlice};
 use casting::{AlignOf, AllBitPatternsValid};
 
+pub use gvariant_macro::{define_gv, gv_type};
+
+pub trait Marker {
+    type Type: Cast + ?Sized;
+    const TYPESTR: &'static [u8];
+
+    // I'd like to remove these two in lieu of t_cast and try_t_cast_mut as the
+    // &self argument really isn't necessary, but see comment below in
+    // macro_rules! gv
+    fn cast<'a>(&self, data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
+        Self::t_cast(data)
+    }
+    fn try_cast_mut<'a>(
+        data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
+    ) -> Result<&'a mut Self::Type, casting::WrongSize> {
+        Self::try_t_cast_mut(data)
+    }
+
+    fn t_cast<'a>(data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
+        Self::Type::from_aligned_slice(data)
+    }
+    fn try_t_cast_mut<'a>(
+        data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
+    ) -> Result<&'a mut Self::Type, casting::WrongSize> {
+        Self::Type::try_from_aligned_slice_mut(data)
+    }
+}
+
+#[macro_export]
+macro_rules! gv {
+    ($typestr:literal) => {{
+        use $crate::Marker;
+        mod _m {
+            #[macro_use]
+            use ref_cast::RefCast;
+            use $crate::aligned_bytes::{AlignedSlice, AsAligned};
+            use $crate::casting::{AlignOf, AllBitPatternsValid};
+            use $crate::offset::{align_offset, AlignedOffset};
+            use $crate::Cast;
+
+            $crate::define_gv!($typestr);
+            pub(crate) struct Marker();
+            impl $crate::Marker for Marker {
+                type Type = $crate::gv_type!($typestr);
+                const TYPESTR: &'static [u8] = $typestr.as_bytes();
+            }
+        };
+        // TODO: I'd much rather that this macro returns a type, rather than
+        // a value.  That way getting a gvariant looks like:
+        //
+        //     let b = <gv!("(yii)")>::cast(bytes);
+        //
+        // rather than:
+        //
+        //     let b = gv!("(yii)").cast(bytes);
+        //
+        // The former makes it much clearer what's happening at compile time
+        // and what's happening at run time.
+        //
+        // As it is, when I try to make this return a type I get the error
+        // message
+        _m::Marker()
+    }};
+}
+
 pub trait Cast: casting::AlignOf + casting::AllBitPatternsValid + 'static {
     fn default_ref() -> &'static Self;
     fn try_from_aligned_slice(
