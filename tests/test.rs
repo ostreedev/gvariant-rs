@@ -22,6 +22,33 @@ fn test_struct_into_tuple() {
 }
 
 #[test]
+fn test_complex_types() {
+    // Data created in Python with:
+    //
+    //     from gi.repository import GLib
+    //     v = GLib.Variant('(a(say)a(sayay))', ([('hello', [1,2,3,4]), ('world', [4,3,2,1])], [('my-dir', [0x3, 0x14, 0x15, 0x92], [0x65, 0x35])]))
+    //     v.get_data_as_bytes().get_data()
+    let buf = copy_to_align(
+        b"hello\x00\x01\x02\x03\x04\x06world\x00\x04\x03\x02\x01\x06\x0b\x16my-dir\x00\x03\x14\x15\x92e5\x0b\x07\x0f\x18");
+    let (files, dirs) = gv!("(a(say)a(sayay))").cast(buf.as_ref()).into();
+    let expected: &[(&[u8], &[u8])] = &[
+        (b"hello", b"\x01\x02\x03\x04"),
+        (b"world", b"\x04\x03\x02\x01"),
+    ];
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].to_tuple().0, expected[0].0);
+    assert_eq!(files[0].to_tuple().1, expected[0].1);
+    assert_eq!(files[1].to_tuple().0, expected[1].0);
+    assert_eq!(files[1].to_tuple().1, expected[1].1);
+
+    assert_eq!(dirs.len(), 1);
+    let d = dirs[0].to_tuple();
+    assert_eq!(d.0, b"my-dir".as_ref());
+    assert_eq!(d.1, b"\x03\x14\x15\x92");
+    assert_eq!(d.2, b"\x65\x35");
+}
+
+#[test]
 fn test_spec_examples() {
     let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
     let (s, i) = gv!("(si)").cast(data.as_ref()).to_tuple();
