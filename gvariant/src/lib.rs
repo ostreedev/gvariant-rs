@@ -133,7 +133,12 @@
 //!   same format, but for serde integration.  Described as WIP and not
 //!   published on crates.io
 
-use std::{convert::TryInto, ffi::CStr, fmt::Debug, marker::PhantomData};
+use std::{
+    convert::TryInto,
+    ffi::CStr,
+    fmt::{Debug, Display},
+    marker::PhantomData,
+};
 
 use ref_cast::RefCast;
 
@@ -388,6 +393,13 @@ impl Str {
         })
         .unwrap()
     }
+    /// Convert `&Str` to `&str` assuming UTF-8 encoding
+    ///
+    /// The GVariant spec says that "the use of UTF-8 is expected and
+    /// encouraged", but it is not guaranteed, so we return a [`Result`] here.
+    pub fn to_str(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(&self.to_bytes())
+    }
     fn find_nul(&self) -> Option<usize> {
         let d: &[u8] = self.data.as_ref();
         match d.last() {
@@ -431,6 +443,11 @@ impl PartialEq<[u8]> for Str {
 impl PartialEq<Str> for [u8] {
     fn eq(&self, other: &Str) -> bool {
         self == other.to_bytes()
+    }
+}
+impl Display for Str {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&String::from_utf8_lossy(self.to_bytes()).as_ref(), f)
     }
 }
 
