@@ -56,6 +56,7 @@ fn write_non_fixed_size_structure(
         n_frames
     };
     let escaped = escape(spec.to_string());
+    let types: Vec<String> = children.iter().map(|x| marker_type(x)).collect();
     let mut tuple = vec![b'('];
     for child in children {
         write!(tuple, "                &{},", marker_type(child))?;
@@ -87,7 +88,7 @@ fn write_non_fixed_size_structure(
         type AlignOf = ::gvariant::aligned_bytes::A{alignment};
     }}
     impl Structure{spec} {{
-        pub fn to_tuple(&self) -> {tuple} {{",
+        pub fn to_tuple<'a>(&'a self) -> {tuple} {{",
         spec = escaped,
         alignment = alignment,
         tuple = tuple,
@@ -133,7 +134,7 @@ fn write_non_fixed_size_structure(
     for (n, child) in children.iter().enumerate() {
         writeln!(
             code,
-            "                <{m}>::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),",
+            "                &<{m}>::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),",
             n = n, m=marker_type(child)
         )?;
     }
@@ -141,7 +142,18 @@ fn write_non_fixed_size_structure(
         code,
         "            )
         }}
-    }}"
+    }}
+    impl<'a> From<&'a Structure{escaped}> for ({tuple}) {{
+        fn from(value : &'a Structure{escaped}) -> Self {{
+            value.to_tuple()
+        }}
+    }}",
+        escaped = escaped,
+        tuple = types
+            .iter()
+            .map(|x| format!("&'a {}", x))
+            .collect::<Vec<String>>()
+            .join(", ")
     )?;
 
     Ok(())
@@ -301,11 +313,11 @@ fn write_packed_struct(
 
     let mut field_arglist = vec![];
     let mut get_fields = vec![];
-    let mut tuple_fields = vec![];
     let mut set_fields = "".to_string();
     let mut eq = vec![];
     let mut defaults = vec![];
     let mut types = vec![];
+    let mut tuple = vec![];
 
     let mut last_end = 0;
     let mut padding_count = 0;
@@ -329,8 +341,8 @@ fn write_packed_struct(
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
         writeln!(out, "    pub field_{} : {},", n, rust_type)?;
         field_arglist.push(format!("field_{} : {}", n, rust_type));
-        get_fields.push(format!("self.field_{}", n));
-        tuple_fields.push(format!("value.{}", n));
+        get_fields.push(format!("&self.field_{}", n));
+        tuple.push(format!("&'a {}", rust_type));
         types.push(rust_type);
         set_fields.push_str(format!("field_{} : field_{},\n", n, n).as_str());
         defaults.push("0".to_string());
@@ -356,11 +368,8 @@ fn write_packed_struct(
             pub const fn new({field_arglist}) -> Structure{escaped} {{
                 Structure{escaped} {{ {set_fields} }}
             }}
-            pub fn to_tuple(self) -> ({tuple}) {{
+            pub fn to_tuple<'a>(&'a self) -> ({tuple}) {{
                 ({get_fields})
-            }}
-            pub fn from_tuple(value : ({tuple})) -> Self {{
-                Self::new({tuple_fields})
             }}
         }}
         impl ::gvariant::Cast for Structure{escaped} {{
@@ -380,13 +389,8 @@ fn write_packed_struct(
                 {eq}
             }}
         }}
-        impl From<({tuple})> for Structure{escaped} {{
-            fn from(value : ({tuple})) -> Self {{
-                Self::from_tuple(value)
-            }}
-        }}
-        impl From<Structure{escaped}> for ({tuple}) {{
-            fn from(value : Structure{escaped}) -> Self {{
+        impl<'a> From<&'a Structure{escaped}> for ({tuple}) {{
+            fn from(value : &'a Structure{escaped}) -> Self {{
                 value.to_tuple()
             }}
         }}
@@ -394,12 +398,11 @@ fn write_packed_struct(
         escaped = escaped,
         align = align_of(gv),
         get_fields = get_fields.join(", "),
-        tuple_fields = tuple_fields.join(", "),
         field_arglist = field_arglist.join(", "),
         set_fields = set_fields,
         defaults = defaults.join(", "),
         eq = eq.join(" && "),
-        tuple = types.join(", ")
+        tuple = tuple.join(", ")
     )?;
 
     Ok(())

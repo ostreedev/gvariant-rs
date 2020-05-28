@@ -10,6 +10,18 @@ fn test_basic_types() {
 }
 
 #[test]
+fn test_struct_into_tuple() {
+    let buf = copy_to_align(b"\x06\x00\x00\x00\x03\x00\x00\x00");
+    let t: (&i32, &i32) = gv!("(ii)").cast(buf.as_ref()).into();
+    assert_eq!(t, (&6, &3));
+
+    let buf = copy_to_align(b"\x06\x00\x00\x00super\x00");
+    let t: (&i32, &gvariant::Str) = gv!("(is)").cast(buf.as_ref()).to_tuple();
+    assert_eq!(t.0, &6);
+    assert_eq!(t.1.to_bytes(), b"super");
+}
+
+#[test]
 fn test_spec_examples() {
     let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
     let (s, i) = gv!("(si)").cast(data.as_ref()).to_tuple();
@@ -52,7 +64,7 @@ fn test_spec_examples() {
     // With type '(yy)':
     let s = gv!("(yy)").cast([0x70u8, 0x80].as_aligned());
     assert_eq!((s.field_0, s.field_1), (0x70, 0x80));
-    assert_eq!(s.to_tuple(), (0x70, 0x80));
+    assert_eq!(s.to_tuple(), (&0x70, &0x80));
 
     // Padded Structure Example 1
     //
@@ -60,7 +72,7 @@ fn test_spec_examples() {
     let data = copy_to_align(&[0x60u8, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00]);
     let s = gv!("(iy)").cast(data.as_ref());
     assert_eq!((s.field_0, s.field_1), (96, 0x70));
-    assert_eq!(s.to_tuple(), (96, 0x70));
+    assert_eq!(s.to_tuple(), (&96, &0x70));
 
     // Padded Structure Example 2
     //
@@ -68,7 +80,7 @@ fn test_spec_examples() {
     let data = copy_to_align(&[0x70, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00]);
     let s = gv!("(yi)").cast(data.as_ref());
     assert_eq!((s.field_0, s.field_1), (0x70, 96));
-    assert_eq!(s.to_tuple(), (0x70, 96));
+    assert_eq!(s.to_tuple(), (&0x70, &96));
 
     // Array of Structures Example
     //
@@ -79,7 +91,7 @@ fn test_spec_examples() {
         .iter()
         .map(|x| x.to_tuple())
         .collect();
-    assert_eq!(v, [(96, 0x70), (648, 0xf7)]);
+    assert_eq!(v, [(&96, &0x70), (&648, &0xf7)]);
 }
 
 #[test]
@@ -95,7 +107,7 @@ fn test_non_normal_values() {
     // Non-zero Padding Bytes
     let data = copy_to_align(&[0x55u8, 0x66, 0x77, 0x88, 0x02, 0x01, 0x00, 0x00]);
     let yi = gv!("(yi)").cast(&*data);
-    assert_eq!(yi.to_tuple(), (0x55, 258));
+    assert_eq!(yi.to_tuple(), (&0x55, &258));
 
     // Boolean Out of Range
     assert_eq!(
