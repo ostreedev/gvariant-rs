@@ -506,8 +506,8 @@ impl Variant {
     /// Example use:
     ///
     ///     match v.split() {
-    ///         ("(is)", data) => {
-    ///             let s = <gv_type!(b"(is)")>::from_aligned_bytes(data.as_aligned());
+    ///         ("(is)", _) => {
+    ///             let s = v.get(gv!("(is)"));
     ///             // Do something with s
     ///         }
     ///     }
