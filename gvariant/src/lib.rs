@@ -236,8 +236,9 @@ macro_rules! gv {
         use $crate::Marker;
         mod _m {
             #[macro_use]
-            use ref_cast::RefCast;
-            use $crate::aligned_bytes::{align_offset, AlignedOffset, AlignedSlice, AsAligned};
+            use $crate::aligned_bytes::{
+                align_offset, AlignedOffset, AlignedSlice, AsAligned, empty_aligned,
+            };
             use $crate::casting::{AlignOf, AllBitPatternsValid};
             use $crate::{Cast, Structure, _define_gv, _gv_type};
 

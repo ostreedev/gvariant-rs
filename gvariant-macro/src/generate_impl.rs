@@ -67,20 +67,27 @@ fn write_non_fixed_size_structure(
     write!(
         code,
         "
-    #[derive(Debug, RefCast)]
+    #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct Structure{spec} {{
         data: AlignedSlice<::gvariant::aligned_bytes::A{alignment}>,
     }}
     impl ::gvariant::Cast for Structure{spec} {{
         fn default_ref() -> &'static Self {{
-            &Self::ref_cast(::gvariant::aligned_bytes::empty_aligned())
+            let d = empty_aligned();
+            // This is safe because Structure{spec} is repr(transparent) around
+            // this same type:
+            unsafe {{&*(d as *const AlignedSlice<A{alignment}> as *const Structure{spec})}}
         }}
         fn try_from_aligned_slice(slice:&AlignedSlice<Self::AlignOf>) -> Result<&Self, ::gvariant::casting::WrongSize> {{
-            Ok(Self::ref_cast(slice))
+            // This is safe because Structure{spec} is repr(transparent) around
+            // this same type:
+            Ok(unsafe {{&*(slice as *const AlignedSlice<A{alignment}> as *const Structure{spec})}})
         }}
         fn try_from_aligned_slice_mut(slice:&mut AlignedSlice<Self::AlignOf>) -> Result<&mut Self, ::gvariant::casting::WrongSize> {{
-            Ok(Self::ref_cast_mut(slice))
+            // This is safe because Structure{spec} is repr(transparent) around
+            // this same type:
+            unsafe {{&mut *(d as *mut AlignedSlice<A{alignment}> as *mut Structure{spec})}}
         }}
     }}
     unsafe impl ::gvariant::casting::AllBitPatternsValid for Structure{spec} {{}}
