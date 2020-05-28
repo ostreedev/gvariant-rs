@@ -59,7 +59,7 @@ fn write_non_fixed_size_structure(
     let types: Vec<String> = children.iter().map(|x| marker_type(x)).collect();
     let mut tuple = vec![b'('];
     for child in children {
-        write!(tuple, "                &{},", marker_type(child))?;
+        write!(tuple, "                &'a {},", marker_type(child))?;
     }
     writeln!(tuple, "            )")?;
     let tuple = String::from_utf8(tuple)?;
@@ -87,8 +87,9 @@ fn write_non_fixed_size_structure(
     unsafe impl ::gvariant::casting::AlignOf for Structure{spec} {{
         type AlignOf = ::gvariant::aligned_bytes::A{alignment};
     }}
-    impl Structure{spec} {{
-        pub fn to_tuple<'a>(&'a self) -> {tuple} {{",
+    impl<'a> Structure<'a> for Structure{spec} {{
+        type RefTuple = {tuple};
+        fn to_tuple(&'a self) -> {tuple} {{",
         spec = escaped,
         alignment = alignment,
         tuple = tuple,
@@ -368,7 +369,10 @@ fn write_packed_struct(
             pub const fn new({field_arglist}) -> Structure{escaped} {{
                 Structure{escaped} {{ {set_fields} }}
             }}
-            pub fn to_tuple<'a>(&'a self) -> ({tuple}) {{
+        }}
+        impl<'a> ::gvariant::Structure<'a> for Structure{escaped} {{
+            type RefTuple = ({tuple});
+            fn to_tuple(&'a self) -> ({tuple}) {{
                 ({get_fields})
             }}
         }}

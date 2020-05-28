@@ -1,5 +1,5 @@
 use gvariant::aligned_bytes::{copy_to_align, AsAligned};
-use gvariant::{gv, Marker};
+use gvariant::{gv, Marker, Structure};
 
 #[test]
 fn test_basic_types() {

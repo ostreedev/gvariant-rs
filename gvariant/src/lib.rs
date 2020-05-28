@@ -235,7 +235,7 @@ macro_rules! gv {
             use ref_cast::RefCast;
             use $crate::aligned_bytes::{align_offset, AlignedOffset, AlignedSlice, AsAligned};
             use $crate::casting::{AlignOf, AllBitPatternsValid};
-            use $crate::{Cast, _define_gv, _gv_type};
+            use $crate::{Cast, Structure, _define_gv, _gv_type};
 
             fn nth_last_frame_offset(data: &[u8], osz: $crate::OffsetSize, n: usize) -> usize {
                 let off = data.len() - (n + 1) * osz as usize;
@@ -987,6 +987,14 @@ impl PartialEq for Bool {
     fn eq(&self, other: &Self) -> bool {
         self.to_bool() == other.to_bool()
     }
+}
+
+/// A trait that all generated structure types implement
+///
+/// This exists mostly to document the interface of the generated types.
+pub trait Structure<'a> {
+    type RefTuple;
+    fn to_tuple(&'a self) -> Self::RefTuple;
 }
 
 #[cfg(test)]
