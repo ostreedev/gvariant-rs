@@ -26,48 +26,34 @@ pub fn define_gv(input: TokenStream) -> TokenStream {
 
 fn type_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
     let spec = type_parser::one(gv_typestr)?;
-    let mut code: Vec<u8> = vec![];
-    marker_type(&spec, &mut code)?;
-    Ok(String::from_utf8(code)?)
+    Ok(marker_type(&spec))
 }
 
-pub(crate) fn marker_type(t: &GVariantType, f: &mut impl std::io::Write) -> std::io::Result<()> {
+pub(crate) fn marker_type(t: &GVariantType) -> String {
     match t {
-        GVariantType::B => write!(f, "::gvariant::Bool"),
-        GVariantType::Y => write!(f, "u8"),
-        GVariantType::N => write!(f, "i16"),
-        GVariantType::Q => write!(f, "u16"),
-        GVariantType::I => write!(f, "i32"),
-        GVariantType::U => write!(f, "u32"),
-        GVariantType::X => write!(f, "i64"),
-        GVariantType::T => write!(f, "u64"),
-        GVariantType::D => write!(f, "f64"),
-        GVariantType::S => write!(f, "::gvariant::Str"),
-        GVariantType::O => write!(f, "::gvariant::Str"),
-        GVariantType::G => write!(f, "::gvariant::Str"),
-        GVariantType::V => write!(f, "::gvariant::Variant"),
+        GVariantType::B => "::gvariant::Bool".to_string(),
+        GVariantType::Y => "u8".to_string(),
+        GVariantType::N => "i16".to_string(),
+        GVariantType::Q => "u16".to_string(),
+        GVariantType::I => "i32".to_string(),
+        GVariantType::U => "u32".to_string(),
+        GVariantType::X => "i64".to_string(),
+        GVariantType::T => "u64".to_string(),
+        GVariantType::D => "f64".to_string(),
+        GVariantType::S => "::gvariant::Str".to_string(),
+        GVariantType::O => "::gvariant::Str".to_string(),
+        GVariantType::G => "::gvariant::Str".to_string(),
+        GVariantType::V => "::gvariant::Variant".to_string(),
         GVariantType::A(t) => match size_of(t) {
-            None => {
-                write!(f, "::gvariant::NonFixedWidthArray::<")?;
-                marker_type(t, f)?;
-                write!(f, ">")
-            }
-            Some(_) => {
-                write!(f, "[")?;
-                marker_type(t, f)?;
-                write!(f, "]")
-            }
+            None => format!("::gvariant::NonFixedWidthArray::<{}>", marker_type(t)),
+            Some(_) => format!("[{}]", marker_type(t)),
         },
-        GVariantType::M(t) => {
-            match size_of(t) {
-                None => write!(f, "::gvariant::MaybeNonFixedSize::<")?,
-                Some(_) => write!(f, "::gvariant::MaybeFixedSize::<")?,
-            };
-            marker_type(t, f)?;
-            write!(f, ">")
-        }
+        GVariantType::M(t) => match size_of(t) {
+            None => format!("::gvariant::MaybeNonFixedSize::<{}>", marker_type(t)),
+            Some(_) => format!("::gvariant::MaybeFixedSize::<{}>", marker_type(t)),
+        },
         GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
-            write!(f, "Structure{name}", name = escape(t.to_string()))
+            format!("Structure{name}", name = escape(t.to_string()))
         }
     }
 }

@@ -55,6 +55,14 @@ fn write_non_fixed_size_structure(
     } else {
         n_frames
     };
+    let escaped = escape(spec.to_string());
+    let mut tuple = vec![b'('];
+    for child in children {
+        write!(tuple, "                &{},", marker_type(child))?;
+    }
+    writeln!(tuple, "            )")?;
+    let tuple = String::from_utf8(tuple)?;
+
     write!(
         code,
         "
@@ -79,18 +87,11 @@ fn write_non_fixed_size_structure(
         type AlignOf = ::gvariant::aligned_bytes::A{alignment};
     }}
     impl Structure{spec} {{
-        pub fn to_tuple(&self) -> (\n",
-        spec = escape(spec.to_string()),
+        pub fn to_tuple(&self) -> {tuple} {{",
+        spec = escaped,
         alignment = alignment,
+        tuple = tuple,
     )?;
-
-    // Write out the return type:
-    for child in children {
-        write!(code, "                &")?;
-        marker_type(child, code)?;
-        writeln!(code, ",")?;
-    }
-    writeln!(code, "            ) {{")?;
 
     if n_frame_offsets > 0 {
         writeln!(
@@ -130,12 +131,10 @@ fn write_non_fixed_size_structure(
     }
     writeln!(code, "            (")?;
     for (n, child) in children.iter().enumerate() {
-        write!(code, "                ")?;
-        marker_type(child, code)?;
         writeln!(
             code,
-            "::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),",
-            n = n
+            "                <{m}>::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),",
+            n = n, m=marker_type(child)
         )?;
     }
     writeln!(
@@ -326,9 +325,7 @@ fn write_packed_struct(
             ));
             padding_count += 1;
         }
-        let mut rust_type = vec![];
-        marker_type(&child, &mut rust_type).unwrap();
-        let rust_type: String = String::from_utf8(rust_type).unwrap();
+        let rust_type: String = marker_type(&child);
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
         writeln!(out, "    pub field_{} : {},", n, rust_type)?;
         field_arglist.push(format!("field_{} : {}", n, rust_type));
