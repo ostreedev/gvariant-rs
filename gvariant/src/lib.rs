@@ -11,34 +11,38 @@
 //! doesn't do any of its own allocations.  As a result proper alignment of byte
 //! buffers is the responsibility of the user.  See "Alignment of data" below.
 //!
-//! It's intended to conform to the GVariant specification and match the behaviour
-//! of the [GLib implementation].  Exceptions to this are described in "Deviations
-//! from the Specification" below.
+//! It's intended to conform to the GVariant specification and match the
+//! behaviour of the [GLib implementation].  Exceptions to this are described in
+//! "Deviations from the Specification" below.
 //!
 //! This library assumes you know the types of the data you are dealing with at
-//! compile time.  This is in contrast to the GLib implementation where you could
-//! construct a GVariant type string dynamically.  This allows for a much smaller
-//! and faster implementation, more in line with Alexander Larsson's [GVariant
-//! Schema Compiler].  As a result GVariant structs are supported through use of
-//! code generation via macros.  See the gvariant-macro subdirectory.
+//! compile time.  This is in contrast to the GLib implementation where you
+//! could construct a GVariant type string dynamically.  This allows for a much
+//! smaller and faster implementation, more in line with Alexander Larsson's
+//! [GVariant Schema Compiler].  As a result GVariant structs are supported
+//! through use of code generation via macros.  See the gvariant-macro
+//! subdirectory.
 //!
-//! The library is intended to be sound and safe to run on untrusted input, although
-//! the implementation does include use of `unsafe`.  See "Use of `unsafe`" below.
-//! Help with validating the unsafe portions of the library would be gratefully
-//! received.
+//! The library is intended to be sound and safe to run on untrusted input,
+//! although the implementation does include use of `unsafe`.  See "Use of
+//! `unsafe`" below. Help with validating the unsafe portions of the library
+//! would be gratefully received.
 //!
-//! This library works Rust stable.  As a result we can't use const-generics, which
-//! would make some of the code much more streightforward.  A future version of this
-//! library may use const-generics, once they are available in stable rust.
+//! This library works Rust stable.  As a result we can't use const-generics,
+//! which would make some of the code much more streightforward.  A future
+//! version of this library may use const-generics, once they are available in
+//! stable rust.
 //!
-//! [GLib implementation]: https://developer.gnome.org/glib/stable/glib-GVariant.html
-//! [GVariant Schema Compiler]: https://gitlab.gnome.org/alexl/variant-schema-compiler/
+//! [GLib implementation]:
+//! https://developer.gnome.org/glib/stable/glib-GVariant.html [GVariant Schema
+//! Compiler]: https://gitlab.gnome.org/alexl/variant-schema-compiler/
 //!
 //! ## Status
 //!
-//! * Support for all GVariant types is implemented apart from dictionary entries.
-//! * Serialisation is not currently supported, but may be implemented in a future
-//!   version, or possibly as a seperate crate.
+//! * Support for all GVariant types is implemented apart from dictionary
+//!   entries.
+//! * Serialisation is not currently supported, but may be implemented in a
+//!   future version, or possibly as a seperate crate.
 //!
 //! ### TODO
 //!
@@ -55,9 +59,9 @@
 //!
 //! > **2.3.6 Framing Offsets**
 //! >
-//! > There is no theoretical upper limit in how large a framing offset can be. This
-//! > fact (along with the absence of other limitations in the serialisation format)
-//! > allows for values of arbitrary size.
+//! >There is no theoretical upper limit in how large a framing offset can be.
+//! >This fact (along with the absence of other limitations in the serialisation
+//! >format) allows for values of arbitrary size.
 //!
 //! In this implementation the maximum size of an object is usize (typically
 //! 64-bits).  This should not be a problem in practice on 64-bit machines.
@@ -65,17 +69,19 @@
 //! ## Design
 //!
 //! The intention is to build abstractions that are transparent to the compiler,
-//! such that they compile down to simple memory accesses, like reading the fields
-//! of a struct.  For many of the GVariant types rust already has a type with the
-//! same representation (such as `i32` for **i** or `[u8]` for **ay**).  For other
-//! types this library defines such types (such as `gvariant::Str` for **s** or
-//! `gvariant::NonFixedWidthArray<[i32]>` for **aai**).  For structure types this
-//! library provides a macro `gv!` to generate the code for struct types.
+//! such that they compile down to simple memory accesses, like reading the
+//! fields of a struct.  For many of the GVariant types rust already has a type
+//! with the same representation (such as `i32` for **i** or `[u8]` for **ay**).
+//! For other types this library defines such types (such as `gvariant::Str` for
+//! **s** or `gvariant::NonFixedWidthArray<[i32]>` for **aai**).  For structure
+//! types this library provides a macro `gv!` to generate the code for struct
+//! types.
 //!
-//! If we have a type with the same representation as the underlying bytes we can
-//! just cast the data to the appropriate type and then read it.  The macro [`gv!`]
-//! maps from GVariant typestrs to compatible Rust types returning a [`Marker`].  This
-//! [`Marker`] can then be used to cast data into that type by calling `Marker::cast`.
+//! If we have a type with the same representation as the underlying bytes we
+//! can just cast the data to the appropriate type and then read it.  The macro
+//! [`gv!`] maps from GVariant typestrs to compatible Rust types returning a
+//! [`Marker`].  This [`Marker`] can then be used to cast data into that type by
+//! calling `Marker::cast`.
 //!
 //! So typically code might look like:
 //!
@@ -96,30 +102,32 @@
 //!
 //! ## Comparison to and relationship with other projects
 //!
-//! * [GVariant Schema Compiler] - Similar to this project the GSC generates code at
-//!   compile time to represent the types the user is interested in.  GSC targets
-//!   the C language.  Unlike this project the types are generated from schema
-//!   files, allowing structures to have named fields.  In gvariant-rs we generate
-//!   our code just from the plain GVariant type strings using macros.  This makes
-//!   the build process simpler - there are no external tools, and it makes it
-//!   easier to get started - there is no new schema format to learn.  The cost is
-//!   that the user is responsible for remember which field means what and what
-//!   endianness should be used to interpret the data.
+//! * [GVariant Schema Compiler] - Similar to this project the GSC generates
+//!   code at compile time to represent the types the user is interested in.
+//!   GSC targets the C language.  Unlike this project the types are generated
+//!   from schema files, allowing structures to have named fields.  In
+//!   gvariant-rs we generate our code just from the plain GVariant type strings
+//!   using macros.  This makes the build process simpler - there are no
+//!   external tools, and it makes it easier to get started - there is no new
+//!   schema format to learn.  The cost is that the user is responsible for
+//!   remember which field means what and what endianness should be used to
+//!   interpret the data.
 //!
-//!   It might make sense in the future to extend GSC to generate rust code as well
+//!   It might make sense in the future to extend GSC to generate rust code as
+//!   well
 //!   - in which case the generated code may depend on this library.
-//! * [gtk-rs glib::variant](https://gtk-rs.org/docs/glib/variant/index.html) - This
-//!   is a binding to the GLib GVariant implementation in C, so depends on glib.
-//!   It's currently incomplete.  The docs say "Although `GVariant` supports
-//!   arbitrarily complex types, this binding is currently limited to the basic
-//!   ones: `bool`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f64` and
-//!   `&str`/`String`."
-//! * [zvariant](https://crates.io/crates/zvariant) - Implements the similar DBus
-//!   serialisation format rather than GVariant.  Docs say: "GVariant ... will be
-//!   supported by a future version of this crate."
+//! * [gtk-rs glib::variant](https://gtk-rs.org/docs/glib/variant/index.html) -
+//!   This is a binding to the GLib GVariant implementation in C, so depends on
+//!   glib. It's currently incomplete.  The docs say "Although `GVariant`
+//!   supports arbitrarily complex types, this binding is currently limited to
+//!   the basic ones: `bool`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`,
+//!   `f64` and `&str`/`String`."
+//! * [zvariant](https://crates.io/crates/zvariant) - Implements the similar
+//!   DBus serialisation format rather than GVariant.  Docs say: "GVariant ...
+//!   will be supported by a future version of this crate."
 //! * [serde_gvariant](https://github.com/lucab/serde_gvariant) - Implements the
-//!   same format, but for serde integration.  Described as WIP and not published on
-//!   crates.io
+//!   same format, but for serde integration.  Described as WIP and not
+//!   published on crates.io
 
 use std::{convert::TryInto, ffi::CStr, fmt::Debug, marker::PhantomData};
 
