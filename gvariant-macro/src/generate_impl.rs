@@ -103,10 +103,7 @@ fn write_non_fixed_size_structure(
         let fo_plus = if i == -1 {
             "".to_string()
         } else {
-            format!(
-                "::gvariant::nth_last_frame_offset(&self.data, osz, {}) + ",
-                i
-            )
+            format!("nth_last_frame_offset(&self.data, osz, {}) + ", i)
         };
         writeln!(code, "\n            // {ty}\n            let offset_{n} : AlignedOffset<::gvariant::aligned_bytes::A{calign}> = align_offset::<::gvariant::aligned_bytes::A{b}>({fo_plus}{a}) | AlignedOffset::<::gvariant::aligned_bytes::A{calign}>::try_new({c}).unwrap();",
             ty=child.to_string(), n=n, a=a, b=b, c=c, fo_plus=fo_plus, calign=align_of(child))?;
@@ -122,10 +119,7 @@ fn write_non_fixed_size_structure(
                 )
             }
         } else {
-            format!(
-                "::gvariant::nth_last_frame_offset(&self.data, osz, {i})",
-                i = i + 1
-            )
+            format!("nth_last_frame_offset(&self.data, osz, {i})", i = i + 1)
         };
         writeln!(
             code,

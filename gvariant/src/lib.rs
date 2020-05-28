@@ -112,6 +112,11 @@ macro_rules! gv {
             use $crate::offset::{align_offset, AlignedOffset};
             use $crate::{Cast, _define_gv, _gv_type};
 
+            fn nth_last_frame_offset(data: &[u8], osz: $crate::OffsetSize, n: usize) -> usize {
+                let off = data.len() - (n + 1) * osz as usize;
+                $crate::read_uint(&data[off..], osz, 0)
+            }
+
             _define_gv!($typestr);
             pub(crate) struct Marker();
             impl $crate::Marker for Marker {
@@ -435,6 +440,7 @@ impl<'a, T: Cast + casting::AlignOf + AllBitPatternsValid + Sized + 'static> Cas
 // Framing offsets always appear at the end of containers and are unaligned.
 // They are always stored in little-endian byte order.
 
+#[doc(hidden)]
 #[derive(Debug, Copy, Clone)]
 pub enum OffsetSize {
     U0 = 0,
@@ -444,6 +450,7 @@ pub enum OffsetSize {
     U8 = 8,
 }
 
+#[doc(hidden)]
 pub fn offset_size(len: usize) -> OffsetSize {
     match len {
         0 => OffsetSize::U0,
@@ -455,7 +462,8 @@ pub fn offset_size(len: usize) -> OffsetSize {
     }
 }
 
-fn read_uint(data: &[u8], size: OffsetSize, n: usize) -> usize {
+#[doc(hidden)]
+pub fn read_uint(data: &[u8], size: OffsetSize, n: usize) -> usize {
     let s = n * size as usize;
     match size {
         OffsetSize::U0 => 0,
@@ -853,11 +861,6 @@ impl PartialEq for Bool {
     fn eq(&self, other: &Self) -> bool {
         self.to_bool() == other.to_bool()
     }
-}
-
-pub fn nth_last_frame_offset(data: &[u8], osz: OffsetSize, n: usize) -> usize {
-    let off = data.len() - (n + 1) * osz as usize;
-    read_uint(&data[off..], osz, 0)
 }
 
 #[cfg(test)]
