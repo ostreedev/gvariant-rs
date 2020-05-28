@@ -1,0 +1,9 @@
+[package]
+name = "ostree-ls"
+version = "0.1.0"
+authors = ["William Manley <will@stb-tester.com>"]
+edition = "2018"
+
+[dependencies]
+gvariant = {path = "../../gvariant"}
+hex = "0.4"
