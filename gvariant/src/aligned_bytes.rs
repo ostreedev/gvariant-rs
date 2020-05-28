@@ -1,19 +1,110 @@
-use crate::offset::AlignedOffset;
+//! Byte slices with statically guaranteed alignment
+//!
+//! The gvariant crates operates by reinterpreting byte buffers as a Rust type
+//! type. For these casts to be valid the alignment of the underlying data must
+//! be sufficient for the target type.  We don't perform any of our own
+//! allocations, relying on data passed from the user, as a result proper
+//! alignment of byte buffers is the responsibility of the user.
+//!
+//! This library defines a type [`AlignedSlice<A>`] which represents an aligned
+//! byte buffer aligned to the alignment given by `A`.  `A` may be:
+//!
+//! * [`A1`] - 1B aligned aka unaligned
+//! * [`A2`] - 2B aligned
+//! * [`A4`] - 4B aligned
+//! * [`A8`] - 8B aligned
+//!
+//! As a type parameter the alignment is known statically at compile time.  This
+//! allows eliding runtime checks.
+//!
+//! You can convert [`AlignedSlice`]s to lower alignments infallibly and for
+//! free (using [`AsAligned::as_aligned`] and [`AsAlignedMut::as_aligned_mut`]).
+//! Going in the opposite direction and coming from a plain `&[u8]` slice
+//! requires runtime checks ([`TryAsAligned::try_as_aligned`] and
+//! [`TryAsAlignedMut::try_as_aligned_mut`]) and may require copying the data
+//! ([`copy_to_align`]).
+//!
+//! The [`AsAligned`] trait is provided to make accepting any data of the
+//! appropriate alignment convenient.  For example: use a `&impl AsAligned<A2>`
+//! parameter to accept any data with 2B or greater alignment.
+//!
+//! `alloc_aligned` is provided to make it easy and safe to create aligned
+//! buffers. Example reading data from file into aligned buffer:
+//!
+//! ```rust
+//! let buf = alloc_aligned::<A8>(4096);
+//! let len = file.read(buf.as_mut())?;
+//! let aligned_data = &buf[..len];
+//! ```
+//!
+//! I've not yet implemented it, but it may become necessary to create an
+//! equivalent to `Vec<>` but for aligned memory.  We'll see how we get on.
+//!
+//! #### Efficiency of statically known alignment
+//!
+//! Every GVariant container type has alignment >= any of its children.  This
+//! means that if a byte slice is aligned for the parent it will still be
+//! aligned when we access the children, so we only need to check the alignment
+//! once when constructing the buffer rather than on every access.
+//!
+//! For example: The structure `(nu)` (or `(i16, u32)` in rust terms) has
+//! alignment 4: So we create an `AlignedSlice<A4>` containing the complete 8B
+//! structure.  The alignment is checked at run-time when we create the slice.
+//! The `i16` is extracted with `data[..2]`, which still has type
+//! `AlignedSlice<A4>`. The conversion to `AlignedSlice<A2>` as required by the
+//! `i16`'s doesn't require any runtime checks.
+//!
+//! #### Serialisation alignment vs. platform alignment requirements
+//!
+//! Note: there are two related, but subtly different concepts of alignment at
+//! use in this library:
+//!
+//! 1. The GVariant serialisation format has a concept of alignment of data
+//!    types which informs where padding should be placed and affects the size
+//!    of fixed size structures.
+//! 2. There are the alignment requirements of the types we're casting to that
+//!    Rust and the underlying platform requires of us when we cast.  These are
+//!    the values that `std::mem::align_of<>()` returns.
+//!
+//! These alignments are usually the same, but in some circumstances can differ.
+//! For example: I believe that on 32-bit x86 `align_of<u64>() == 4` - while of
+//! course the serialisation format doesn't depend on the platform in use.  This
+//! library assumes (and asserts in code) that the former alignment is always >=
+//! the latter.
+
+pub use crate::offset::{align_offset, AlignedOffset};
 use std::ops::{
     Deref, DerefMut, Index, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 use std::{borrow::Cow, fmt::Debug};
 
-// This is unsafe because it must only be implemented for zero-sized types
+/// A trait for our alignment structs [`A1`], [`A2`], [`A4`] and [`A8`].
+///
+/// Ideally we'd just use const-generics here, but they're not available on the
+/// rust stable channel yet.  This is the type-level equivalent of
+/// `enum Alignment {A1 = 1, A2 = 2, A4 = 4, A8 = 8}`.
+///
+/// This is unsafe because it must only be implemented for zero-sized types.  Do
+/// not implement this trait.  The implementations in this module should be the
+/// only implementations.
 pub unsafe trait Alignment: Debug {
     const ALIGNMENT: usize;
 }
-// This is a promise that the type is aligned as described by T.  It is
-// unsafe because safe code must be able to assume the given alignment
-// for e.g. pointer casts
-pub unsafe trait AlignedTo<T: Alignment>: Alignment {}
+/// This is a promise that the type is aligned as described by A.
+///
+/// It is unsafe because safe code must be able to assume the given alignment
+/// for e.g. pointer casts.
+///
+/// It can be used as a type constraint in where clauses like so:
+///
+///     where A : AlignedTo<A4>
+///
+/// which means:
+///
+///     where A::ALIGNMENT >= 4
+pub unsafe trait AlignedTo<A: Alignment>: Alignment {}
 
-// 1-byte alignment e.g. no alignment
+/// 1-byte alignment e.g. no alignment
 #[derive(Debug, Copy, Clone)]
 pub struct A1;
 unsafe impl Alignment for A1 {
@@ -54,19 +145,47 @@ unsafe impl AlignedTo<A2> for A8 {}
 unsafe impl AlignedTo<A4> for A8 {}
 unsafe impl AlignedTo<A8> for A8 {}
 
+/// Allows narrowing the alignment of a `&AlignedSlice`
+///
+/// This can be convenient to accept any `AlignedSlice` with sufficient
+/// alignment as an argument to a function.  For example:
+///
+///     fn foo(data : &impl AsAligned<A2>) {
+///         let data = data.as_aligned();
+///         ...
+///
+/// or if a function requires a specific alignment you can do:
+///
+///     bar(data.as_aligned());
+///
+/// Mostly we convert from `AlignedSlice<A8>` -> `AlignedSlice<A4>` ->
+/// `AlignedSlice<A2>` -> `AlignedSlice<A1>`, but this can also be used to go
+/// from `&[u8]` to `AlignedSlice<A1>`.
+///
+/// This is intended as a 0 overhead abstraction.  In release mode this should
+/// compile down to nothing.
 pub trait AsAligned<A: Alignment> {
     fn as_aligned(&self) -> &AlignedSlice<A>;
 }
+/// Allows narrowing the alignment of a `&mut AlignedSlice`
+///
+/// Just the same as [`AsAligned`], but `mut`.
 pub trait AsAlignedMut<A: Alignment>: AsAligned<A> {
     fn as_aligned_mut(&mut self) -> &mut AlignedSlice<A>;
 }
+/// Allows widening the alignment by performing fallible runtime checks.
 pub trait TryAsAligned<A: Alignment> {
     fn try_as_aligned(&self) -> Result<&AlignedSlice<A>, Misaligned>;
 }
+/// Allows widening the alignment by performing fallible runtime checks.
 pub trait TryAsAlignedMut<A: Alignment>: TryAsAligned<A> {
     fn try_as_aligned_mut(&mut self) -> Result<&mut AlignedSlice<A>, Misaligned>;
 }
 
+/// A byte array, but with a compile-time guaranteed minimum alignment
+///
+/// The aligment requirement is specfied by the type parameter A.  It will be
+/// [`A1`], [`A2`], [`A4`] or [`A8`].
 #[repr(C)]
 #[derive(Debug)]
 pub struct AlignedSlice<A: Alignment> {
@@ -98,6 +217,9 @@ pub fn copy_to_align<'a, A: Alignment>(data: &'a [u8]) -> Cow<'a, AlignedSlice<A
     }
 }
 
+/// Allocate a new boxed [`AlignedSlice`].
+///
+/// Data is initialised to all 0.
 pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
     let layout = std::alloc::Layout::from_size_align(size, A::ALIGNMENT).unwrap();
     unsafe {
@@ -348,10 +470,13 @@ unsafe fn to_alignedslice_unchecked_mut<'a, A: Alignment>(
 fn is_aligned_to<A: Alignment>(value: &[u8]) -> bool {
     is_aligned(value, A::ALIGNMENT)
 }
-pub fn is_aligned(value: &[u8], alignment: usize) -> bool {
+pub(crate) fn is_aligned(value: &[u8], alignment: usize) -> bool {
     value as *const [u8] as *const u8 as usize % alignment == 0
 }
 
+/// Error returned by [`TryAsAligned::try_as_aligned`] and
+/// [`TryAsAlignedMut::try_as_aligned_mut`] when the passed in slice isn't
+/// appropriately aligned.
 #[derive(Debug)]
 pub struct Misaligned {}
 impl std::error::Error for Misaligned {}
@@ -389,6 +514,11 @@ fn align_bytes<'a, A: Alignment>(value: &'a [u8]) -> &'a AlignedSlice<A> {
     let offset = p.wrapping_neg() & (A::ALIGNMENT - 1);
     value[offset..].try_as_aligned().unwrap()
 }
+
+/// Get a static reference to an empty [`AlignedSlice`] with the given
+/// alignment.
+///
+/// This is useful for implementing GVariant default values.
 pub fn empty_aligned<A: Alignment>() -> &'static AlignedSlice<A> {
     &align_bytes(b"        ")[..1]
 }

@@ -1,7 +1,7 @@
 use crate::aligned_bytes::{Alignment, Misaligned, A1, A2, A4, A8};
 use std::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
 
-/// Represents a usize that is some multiple of Alignment::ALIGNMENT.
+/// Represents a usize that is some multiple of [`Alignment::ALIGNMENT`].
 ///
 /// `AlignedOffset<A2>` is essentially a usize that is multiple of 2.  This is
 /// useful because you can slice a `AlignedSlice<A2>` and be statically
@@ -12,6 +12,7 @@ use std::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AlignedOffset<A: Alignment>(usize, PhantomData<A>);
 impl<A: Alignment> AlignedOffset<A> {
+    /// Convert to usize
     pub fn to_usize(&self) -> usize {
         self.0
     }
@@ -30,8 +31,8 @@ impl<A: Alignment> AlignedOffset<A> {
     }
 }
 
-/// Construct an `AlignedOffset` by rounding-up idx until it's a multiple of
-/// `A::ALIGNMENT`.
+/// Construct an [`AlignedOffset`] by rounding-up `idx` until it's a multiple of
+/// [`A::ALIGNMENT`](Alignment).
 ///
 /// This is useful for GVariant deserialisation because often we have an offset
 /// representing the end of a value and we want to find the start of the next
