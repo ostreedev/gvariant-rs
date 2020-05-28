@@ -148,6 +148,11 @@ fn write_non_fixed_size_structure(
         fn from(value : &'a Structure{escaped}) -> Self {{
             value.to_tuple()
         }}
+    }}
+    impl PartialEq for Structure{escaped} {{
+        fn eq(&self, other: &Self) -> bool {{
+            self.to_tuple() == other.to_tuple()
+        }}
     }}",
         escaped = escaped,
         tuple = types

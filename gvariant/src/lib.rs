@@ -66,6 +66,10 @@
 //! In this implementation the maximum size of an object is usize (typically
 //! 64-bits).  This should not be a problem in practice on 64-bit machines.
 //!
+//! ### Equality of Variant **v** type for non-normal form data
+//!
+//! See note under [`Variant`].
+//!
 //! ## Design
 //!
 //! The intention is to build abstractions that are transparent to the compiler,
@@ -269,7 +273,7 @@ macro_rules! gv {
     }};
 }
 
-pub trait Cast: casting::AlignOf + casting::AllBitPatternsValid + 'static {
+pub trait Cast: casting::AlignOf + casting::AllBitPatternsValid + 'static + PartialEq {
     fn default_ref() -> &'static Self;
     fn try_from_aligned_slice(
         slice: &AlignedSlice<Self::AlignOf>,
@@ -432,6 +436,28 @@ impl PartialEq<Str> for [u8] {
 /// The GVariant Variant **v** type
 ///
 /// The Variant type can contain any GVariant value.
+///
+/// ### Non-spec conformant implementation of Equality with non-normal form data
+///
+/// While every value has a single canoncial byte representation ("normal form")
+/// there other representations that have the same value.  For example: values
+/// of type **(yi)** have 3B of padding between the **y** and the **i**.  In
+/// normal form these bytes are 0, but they are irrelevant for the actual value.
+/// Ignoring the value of the padding bytes is correct according to the spec.
+///
+/// This is handled correctly when comparing the values of two **(yi)**
+/// instances in rust code.  What isn't correct is the handling of `Variant`
+/// **v** types that contain non-normal data with respect to checking for
+/// equality.  Correct checking of equality would require deserialising the data
+/// according to the typestr contained within the variant, and then doing the
+/// comparison.  We don't do run-time interpretation of typestrs in this crate,
+/// prefering to do it at compile time.  Instead we just compare the underlying
+/// data.  This gives correct results for data in normal form, but there will be
+/// some false-negatives for non-normal form data.
+///
+/// Therefore [`Variant`] implements [`PartialEq`], but not [`Eq`] because the
+/// comparison is not "reflexive".
+
 #[derive(Debug, RefCast)]
 #[repr(transparent)]
 pub struct Variant(AlignedSlice<A8>);
@@ -500,6 +526,14 @@ impl Variant {
         } else {
             (b"()", empty_aligned())
         }
+    }
+}
+
+impl PartialEq for Variant {
+    /// Caveat: The current implementation has false negatives for data not in
+    /// "normal form".  This may change in the future.
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_ref() as &[u8] == other.0.as_ref() as &[u8]
     }
 }
 
@@ -684,6 +718,21 @@ impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
         }
     }
 }
+
+impl<T: Cast + PartialEq + ?Sized> PartialEq for NonFixedWidthArray<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        for (a, b) in self.iter().zip(other) {
+            if a != b {
+                return false;
+            }
+        }
+        true
+    }
+}
+impl<T: Cast + PartialEq + Eq + ?Sized> Eq for NonFixedWidthArray<T> {}
 
 /// A iterator over the items of a [`NonFixedWidthArray`]
 ///
@@ -944,7 +993,7 @@ impl<T: Cast + PartialEq + ?Sized> PartialEq for MaybeNonFixedSize<T> {
         self.to_option() == other.to_option()
     }
 }
-impl<T: Cast + Eq> Eq for MaybeNonFixedSize<T> {}
+impl<T: Cast + Eq + ?Sized> Eq for MaybeNonFixedSize<T> {}
 impl<T: Cast + PartialEq> PartialEq<Option<&T>> for MaybeNonFixedSize<T> {
     fn eq(&self, other: &Option<&T>) -> bool {
         self.to_option() == *other
@@ -966,7 +1015,7 @@ impl<T: Cast + PartialEq> PartialEq<MaybeNonFixedSize<T>> for Option<&T> {
 /// so we need our own type here.  Rust's must either be `0x00` (`false`) or
 /// `0x01` (`true`), while with GVariant any value in the range `0x01..=0xFF` is
 /// `true`.
-#[derive(Debug, RefCast)]
+#[derive(Debug, RefCast, Eq)]
 #[repr(transparent)]
 pub struct Bool(u8);
 impl Bool {
@@ -992,7 +1041,7 @@ impl PartialEq for Bool {
 /// A trait that all generated structure types implement
 ///
 /// This exists mostly to document the interface of the generated types.
-pub trait Structure<'a> {
+pub trait Structure<'a>: PartialEq {
     type RefTuple;
     fn to_tuple(&'a self) -> Self::RefTuple;
 }
@@ -1187,6 +1236,10 @@ mod tests {
         assert_eq!(
             Str::from_aligned_slice(b"hello world\0".as_aligned()).to_bytes(),
             b"hello world"
+        );
+        assert_eq!(
+            Str::from_aligned_slice(b"hello world\0".as_aligned()),
+            b"hello world".as_ref()
         );
     }
 
