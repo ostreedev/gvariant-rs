@@ -188,13 +188,7 @@ fn test_non_normal_values() {
     );
 
     // String with Embedded Nul
-    assert_eq!(
-        gv!("s")
-            .cast(b"foo\0bar\0".as_aligned())
-            .to_cstr()
-            .to_bytes(),
-        b"foo"
-    );
+    assert_eq!(gv!("s").cast(b"foo\0bar\0".as_aligned()).to_bytes(), b"foo");
 
     // String with embedded nul but none at end
     assert_eq!(gv!("s").cast(b"foo\0bar".as_aligned()).to_bytes(), b"");
@@ -225,15 +219,12 @@ fn test_non_normal_values() {
     // End boundary precedes start boundary
     let gv_as = gv!("as").cast(b"foo\0bar\0baz\0\x04\x00\x0c".as_aligned());
     assert_eq!(
-        gv_as
-            .into_iter()
-            .map(|x| x.to_cstr().to_bytes())
-            .collect::<Vec<_>>(),
+        gv_as.into_iter().map(|x| x.to_bytes()).collect::<Vec<_>>(),
         [b"foo".as_ref(), b"", b"foo"]
     );
     assert_eq!(gv_as[0].to_bytes(), b"foo");
     assert_eq!(gv_as[1].to_bytes(), b"");
-    assert_eq!(gv_as[2].to_cstr().to_bytes(), b"foo");
+    assert_eq!(gv_as[2].to_bytes(), b"foo");
     assert_eq!(gv_as.len(), 3);
 
     // Insufficient space for structure framing offsets

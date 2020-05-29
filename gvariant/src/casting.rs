@@ -18,7 +18,10 @@
 //!   match. Similarly when casting between slices we only perform the cast if
 //!   the input slice size is a multiple of the element size
 
-use std::{convert::TryInto, error::Error, fmt::Display};
+use core::{convert::TryInto, fmt::Display};
+
+#[cfg(feature = "std")]
+use std::error::Error;
 
 use crate::aligned_bytes;
 use crate::aligned_bytes::{is_aligned, AlignedSlice};
@@ -48,9 +51,10 @@ unsafe impl<T: AlignOf> AlignOf for [T] {
 /// size of the slice doesn't match the size of the desination type.
 #[derive(Debug)]
 pub struct WrongSize {}
+#[cfg(feature = "std")]
 impl Error for WrongSize {}
 impl Display for WrongSize {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Slice has wrong size")
     }
 }
@@ -64,19 +68,19 @@ pub(crate) fn cast_slice<'a, A: aligned_bytes::Alignment, T: AllBitPatternsValid
 ) -> Result<&'a [T], WrongSize> {
     // This function requires the data to already have suitable alignment.  This
     // should be compiled out:
-    if A::ALIGNMENT < std::mem::align_of::<T>() {
+    if A::ALIGNMENT < core::mem::align_of::<T>() {
         panic!()
     }
     // This assertion should be guaranteed by the above check:
-    debug_assert!(is_aligned(a, std::mem::align_of::<T>()));
-    if a.len() % std::mem::size_of::<T>() == 0 {
+    debug_assert!(is_aligned(a, core::mem::align_of::<T>()));
+    if a.len() % core::mem::size_of::<T>() == 0 {
         // We know the alignment and size is ok now, and AllBitPatternsValid
         // means that the representation makes sense, so we go ahead with the
         // cast:
         Ok(unsafe {
-            std::slice::from_raw_parts::<'a, T>(
+            core::slice::from_raw_parts::<'a, T>(
                 a.as_ptr() as *const T,
-                a.len() / std::mem::size_of::<T>(),
+                a.len() / core::mem::size_of::<T>(),
             )
         })
     } else {
@@ -91,8 +95,8 @@ pub(crate) fn cast_slice<'a, A: aligned_bytes::Alignment, T: AllBitPatternsValid
 pub fn try_cast_slice_to<'a, T: AlignOf + AllBitPatternsValid>(
     s: &'a AlignedSlice<T::AlignOf>,
 ) -> Result<&'a T, WrongSize> {
-    if std::mem::size_of::<T>() == s.len() {
-        debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
+    if core::mem::size_of::<T>() == s.len() {
+        debug_assert!(is_aligned(s, core::mem::align_of::<T>()));
         Ok(unsafe { &*(s.as_ptr() as *const T) })
     } else {
         Err(WrongSize {})
@@ -106,8 +110,8 @@ pub fn try_cast_slice_to<'a, T: AlignOf + AllBitPatternsValid>(
 pub fn try_cast_slice_to_mut<'a, T: AlignOf + AllBitPatternsValid>(
     s: &'a mut AlignedSlice<T::AlignOf>,
 ) -> Result<&'a mut T, WrongSize> {
-    if std::mem::size_of::<T>() == s.len() {
-        debug_assert!(is_aligned(s, std::mem::align_of::<T>()));
+    if core::mem::size_of::<T>() == s.len() {
+        debug_assert!(is_aligned(s, core::mem::align_of::<T>()));
         Ok(unsafe { &mut *(s.as_mut_ptr() as *mut T) })
     } else {
         Err(WrongSize {})

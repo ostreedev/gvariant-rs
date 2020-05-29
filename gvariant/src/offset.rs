@@ -1,5 +1,5 @@
 use crate::aligned_bytes::{Alignment, Misaligned, A1, A2, A4, A8};
-use std::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
+use core::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
 
 /// Represents a usize that is some multiple of [`Alignment::ALIGNMENT`].
 ///
@@ -45,7 +45,7 @@ pub fn align_offset<A: Alignment>(idx: usize) -> AlignedOffset<A> {
 }
 
 impl<A: Alignment> Display for AlignedOffset<A> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
@@ -56,7 +56,7 @@ impl<A: Alignment> PartialEq<usize> for AlignedOffset<A> {
     }
 }
 impl<A: Alignment> PartialOrd<usize> for AlignedOffset<A> {
-    fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &usize) -> Option<core::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
@@ -66,7 +66,7 @@ impl<A: Alignment> PartialEq<AlignedOffset<A>> for usize {
     }
 }
 impl<A: Alignment> PartialOrd<AlignedOffset<A>> for usize {
-    fn partial_cmp(&self, other: &AlignedOffset<A>) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &AlignedOffset<A>) -> Option<core::cmp::Ordering> {
         self.partial_cmp(&other.0)
     }
 }
@@ -89,7 +89,7 @@ impl<A: Alignment> From<AlignedOffset<A>> for usize {
 
 // These are useful for implementing the field alignment algorithm described in
 // the GVariant spec
-impl<A: Alignment> std::ops::BitOr for AlignedOffset<A> {
+impl<A: Alignment> core::ops::BitOr for AlignedOffset<A> {
     type Output = AlignedOffset<A>;
     fn bitor(self, rhs: Self) -> Self::Output {
         // This is safe because neither of A or B will have the bottom bits set,
@@ -100,7 +100,7 @@ impl<A: Alignment> std::ops::BitOr for AlignedOffset<A> {
 
 macro_rules! impl_bitor {
     ($x:ty, $y:ty, $min:ty) => {
-        impl std::ops::BitOr<AlignedOffset<$x>> for AlignedOffset<$y> {
+        impl core::ops::BitOr<AlignedOffset<$x>> for AlignedOffset<$y> {
             type Output = AlignedOffset<$min>;
             fn bitor(self, rhs: AlignedOffset<$x>) -> AlignedOffset<$min> {
                 // This is safe because neither of A or B will have the bottom bits set,
@@ -124,10 +124,11 @@ impl_bitor!(A8, A2, A2);
 impl_bitor!(A8, A4, A4);
 
 #[cfg(test)]
+#[cfg(feature = "alloc")]
 mod tests {
     use super::*;
     use crate::aligned_bytes::{A2, A4};
-    use std::convert::TryInto;
+    use core::convert::TryInto;
 
     #[test]
     fn test() {

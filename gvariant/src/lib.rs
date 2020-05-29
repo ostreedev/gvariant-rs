@@ -49,8 +49,27 @@
 //! ### TODO
 //!
 //! * Correct handling of non-normal structs
-//! * Add no-std and no-alloc support
 //! * Fuzz testing - compare against the GLib version
+//!
+//! ## Features
+//!
+//! ### `std` - enabled by default
+//!
+//! Required for:
+//!
+//! * our errors to implement [`std::error::Error`]
+//! * `Str`'s `to_cstr()` method
+//!
+//! Disable this feature for no-std support.
+//!
+//! ### `alloc` - enabled by default
+//!
+//! Required for:
+//!
+//! * Allocating [`AlignedSlice`]s with [`ToOwned`], [`copy_to_align`] and
+//!   [`alloc_aligned`].
+//! * Correctly displaying non-utf-8 formatted strings
+//! * The std feature
 //!
 //! ## Deviations from the Specification
 //!
@@ -133,12 +152,21 @@
 //!   same format, but for serde integration.  Described as "WIP" and not
 //!   published on crates.io
 
-use std::{
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+#[cfg(feature = "alloc")]
+use alloc::string::String;
+
+use core::{
     convert::TryInto,
-    ffi::CStr,
     fmt::{Debug, Display},
     marker::PhantomData,
 };
+
+#[cfg(feature = "std")]
+use std::ffi::CStr;
 
 use ref_cast::RefCast;
 
@@ -408,6 +436,7 @@ impl Str {
     /// bytes. So the performance of this function is currently linear with
     /// string length.  This could be changed in the future to be 0-cost if
     /// `std::ffi::CStr::from_ptr` is changed similarly.
+    #[cfg(feature = "std")]
     pub fn to_cstr(&self) -> &CStr {
         CStr::from_bytes_with_nul(match self.find_nul() {
             Some(n) => &self.data.as_ref()[..=n],
@@ -419,8 +448,8 @@ impl Str {
     ///
     /// The GVariant spec says that "the use of UTF-8 is expected and
     /// encouraged", but it is not guaranteed, so we return a [`Result`] here.
-    pub fn to_str(&self) -> Result<&str, std::str::Utf8Error> {
-        std::str::from_utf8(&self.to_bytes())
+    pub fn to_str(&self) -> Result<&str, core::str::Utf8Error> {
+        core::str::from_utf8(&self.to_bytes())
     }
     fn find_nul(&self) -> Option<usize> {
         let d: &[u8] = self.data.as_ref();
@@ -454,7 +483,7 @@ impl Cast for Str {
 
 impl PartialEq for Str {
     fn eq(&self, other: &Self) -> bool {
-        self.to_cstr() == other.to_cstr()
+        self.to_bytes() == other.to_bytes()
     }
 }
 impl PartialEq<[u8]> for Str {
@@ -468,13 +497,45 @@ impl PartialEq<Str> for [u8] {
     }
 }
 impl Display for Str {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&String::from_utf8_lossy(self.to_bytes()).as_ref(), f)
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&DisplayUtf8Lossy(self.to_bytes()), f)
     }
 }
 impl Debug for Str {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&String::from_utf8_lossy(self.to_bytes()).as_ref(), f)
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&DisplayUtf8Lossy(self.to_bytes()), f)
+    }
+}
+
+// TODO: Replace this with core::str::lossy::Utf8Lossy if it's ever stabilised.
+struct DisplayUtf8Lossy<'a>(&'a [u8]);
+impl core::fmt::Display for DisplayUtf8Lossy<'_> {
+    #[cfg(feature = "alloc")]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&String::from_utf8_lossy(self.0).as_ref(), f)
+    }
+    #[cfg(not(feature = "alloc"))]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(
+            match core::str::from_utf8(self.0) {
+                Ok(x) => x,
+                Err(_) => "<Error: Invalid Utf-8>",
+            },
+            f,
+        )
+    }
+}
+impl core::fmt::Debug for DisplayUtf8Lossy<'_> {
+    #[cfg(feature = "alloc")]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&String::from_utf8_lossy(self.0).as_ref(), f)
+    }
+    #[cfg(not(feature = "alloc"))]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match core::str::from_utf8(self.0) {
+            Ok(x) => core::fmt::Debug::fmt(x, f),
+            Err(_) => core::fmt::Display::fmt("<Error: Invalid Utf-8>", f),
+        }
     }
 }
 
@@ -526,12 +587,12 @@ impl Cast for Variant {
     }
 }
 impl Debug for Variant {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let (gv_type, data) = self.split();
         write!(
             f,
             "Variant {{ type: {:?}, data: {:?} }}",
-            std::string::String::from_utf8_lossy(gv_type).as_ref(),
+            DisplayUtf8Lossy(gv_type),
             data.as_ref() as &[u8]
         )
     }
@@ -709,7 +770,7 @@ pub struct NonFixedWidthArray<T: Cast + ?Sized> {
 }
 
 impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[")?;
         for child in self {
             write!(f, "{:?}, ", child)?;
@@ -915,7 +976,7 @@ pub struct MaybeFixedSize<T: Cast> {
     data: AlignedSlice<T::AlignOf>,
 }
 impl<T: Cast + Debug> Debug for MaybeFixedSize<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.to_option().fmt(f)
     }
 }
@@ -1009,7 +1070,7 @@ pub struct MaybeNonFixedSize<T: Cast + ?Sized> {
     data: AlignedSlice<T::AlignOf>,
 }
 impl<T: Cast + Debug + ?Sized> Debug for MaybeNonFixedSize<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.to_option().fmt(f)
     }
 }
@@ -1099,8 +1160,8 @@ impl Bool {
     }
 }
 impl Debug for Bool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&self.to_bool(), f)
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.to_bool(), f)
     }
 }
 unsafe impl AllBitPatternsValid for Bool {}
@@ -1135,6 +1196,7 @@ pub trait Structure<'a>: Cast + Debug + casting::AlignOf + casting::AllBitPatter
 }
 
 #[cfg(test)]
+#[cfg(feature = "alloc")]
 mod tests {
     use super::*;
     use aligned_bytes::{copy_to_align, AlignedSlice, AsAligned, A8};

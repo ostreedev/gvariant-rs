@@ -74,10 +74,16 @@
 //! the latter.
 
 pub use crate::offset::{align_offset, AlignedOffset};
-use std::ops::{
+
+#[cfg(feature = "alloc")]
+use alloc::{
+    borrow::{Cow, ToOwned},
+    boxed::Box,
+};
+use core::fmt::Debug;
+use core::ops::{
     Deref, DerefMut, Index, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
-use std::{borrow::Cow, fmt::Debug};
 
 /// A trait for our alignment structs [`A1`], [`A2`], [`A4`] and [`A8`].
 ///
@@ -194,6 +200,7 @@ pub struct AlignedSlice<A: Alignment> {
     data: [u8],
 }
 
+#[cfg(feature = "alloc")]
 impl<A: Alignment> ToOwned for AlignedSlice<A> {
     type Owned = Box<AlignedSlice<A>>;
     fn to_owned(&self) -> Self::Owned {
@@ -208,6 +215,7 @@ impl<A: Alignment> ToOwned for AlignedSlice<A> {
 /// This is convenient for when you can't ensure the alignment of your data in
 /// advance.  By using `Cow` we only have to make a copy of the data if it is
 /// not aligned.
+#[cfg(feature = "alloc")]
 pub fn copy_to_align<'a, A: Alignment>(data: &'a [u8]) -> Cow<'a, AlignedSlice<A>> {
     if is_aligned_to::<A>(data) {
         Cow::Borrowed(data.try_as_aligned().unwrap())
@@ -221,8 +229,9 @@ pub fn copy_to_align<'a, A: Alignment>(data: &'a [u8]) -> Cow<'a, AlignedSlice<A
 /// Allocate a new boxed [`AlignedSlice`].
 ///
 /// Data is initialised to all 0.
+#[cfg(feature = "alloc")]
 pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
-    let layout = std::alloc::Layout::from_size_align(size, A::ALIGNMENT).unwrap();
+    let layout = alloc::alloc::Layout::from_size_align(size, A::ALIGNMENT).unwrap();
     unsafe {
         // This is safe because:
         //
@@ -233,7 +242,7 @@ pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
         // * We can cast to AlignedSlice because the representation is the same
         //   as [u8] modulo alignment, and appropriate alignment has been
         //   specified in layout
-        let bs = std::slice::from_raw_parts_mut(std::alloc::alloc_zeroed(layout), size);
+        let bs = core::slice::from_raw_parts_mut(alloc::alloc::alloc_zeroed(layout), size);
         Box::from_raw(to_alignedslice_unchecked_mut(bs))
     }
 }
@@ -308,9 +317,9 @@ where
 {
     fn as_aligned(&self) -> &AlignedSlice<ToA> {
         // This is a narrowing, so will always succeed
-        let initial_align = std::mem::align_of_val(self);
+        let initial_align = core::mem::align_of_val(self);
         let out = unsafe { &*(self as *const Self as *const AlignedSlice<ToA>) };
-        assert!(initial_align >= std::mem::align_of_val(out));
+        assert!(initial_align >= core::mem::align_of_val(out));
         out
     }
 }
@@ -320,9 +329,9 @@ where
 {
     fn as_aligned_mut(&mut self) -> &mut AlignedSlice<ToA> {
         // This is a narrowing, so will always succeed
-        let initial_align = std::mem::align_of_val(self);
+        let initial_align = core::mem::align_of_val(self);
         let out = unsafe { &mut *(self as *mut Self as *mut AlignedSlice<ToA>) };
-        assert!(initial_align >= std::mem::align_of_val(out));
+        assert!(initial_align >= core::mem::align_of_val(out));
         out
     }
 }
@@ -330,7 +339,7 @@ impl<FromA: Alignment, ToA: Alignment> TryAsAligned<ToA> for AlignedSlice<FromA>
     fn try_as_aligned(&self) -> Result<&AlignedSlice<ToA>, Misaligned> {
         // If narrowing the alignment we know it's fine (at compile time).  If
         // widening the alignment we must fall back to runtime check
-        if std::mem::align_of::<FromA>() >= std::mem::align_of::<ToA>()
+        if core::mem::align_of::<FromA>() >= core::mem::align_of::<ToA>()
             || is_aligned_to::<ToA>(self)
         {
             Ok(unsafe { &*(self as *const Self as *const AlignedSlice<ToA>) })
@@ -343,7 +352,7 @@ impl<FromA: Alignment, ToA: Alignment> TryAsAlignedMut<ToA> for AlignedSlice<Fro
     fn try_as_aligned_mut(&mut self) -> Result<&mut AlignedSlice<ToA>, Misaligned> {
         // If narrowing the alignment we know it's fine (at compile time).  If
         // widening the alignment we must fall back to runtime check
-        if std::mem::align_of::<FromA>() >= std::mem::align_of::<ToA>()
+        if core::mem::align_of::<FromA>() >= core::mem::align_of::<ToA>()
             || is_aligned_to::<ToA>(self)
         {
             Ok(unsafe { &mut *(self as *mut Self as *mut AlignedSlice<ToA>) })
@@ -480,20 +489,21 @@ pub(crate) fn is_aligned(value: &[u8], alignment: usize) -> bool {
 /// appropriately aligned.
 #[derive(Debug)]
 pub struct Misaligned {}
+#[cfg(feature = "std")]
 impl std::error::Error for Misaligned {}
-impl std::fmt::Display for Misaligned {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Misaligned {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Misaligned")
     }
 }
 
-impl<'a> std::convert::From<&'a [u8]> for &'a AlignedSlice<A1> {
+impl<'a> core::convert::From<&'a [u8]> for &'a AlignedSlice<A1> {
     fn from(value: &'a [u8]) -> Self {
         // Everything is 1B aligned, so this is safe:
         unsafe { to_alignedslice_unchecked(value) }
     }
 }
-impl<'a> std::convert::From<&'a mut [u8]> for &'a mut AlignedSlice<A1> {
+impl<'a> core::convert::From<&'a mut [u8]> for &'a mut AlignedSlice<A1> {
     fn from(value: &'a mut [u8]) -> Self {
         // Everything is 1B aligned, so this is safe:
         unsafe { to_alignedslice_unchecked_mut(value) }
