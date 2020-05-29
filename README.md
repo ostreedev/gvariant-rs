@@ -69,7 +69,6 @@ fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
 
 ### TODO
 
-* Correct handling of non-normal structs
 * Fuzz testing - compare against the GLib version
 * Publish version 1.0
 

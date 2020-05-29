@@ -228,5 +228,17 @@ fn test_non_normal_values() {
     assert_eq!(gv_as.len(), 3);
 
     // Insufficient space for structure framing offsets
-    //assert_eq!(<gv!("(ayayayayay)")>::from_aligned_slice([0x03, 0x02, 0x01]), [[3], [2], [1], [], []]);
+    let t = gv!("(ayayayayay)")
+        .cast([0x03u8, 0x02, 0x01].as_ref().as_aligned())
+        .to_tuple();
+    assert_eq!(
+        t,
+        (
+            [3u8].as_ref(),
+            [2u8].as_ref(),
+            [1u8].as_ref(),
+            [].as_ref(),
+            [].as_ref()
+        )
+    );
 }

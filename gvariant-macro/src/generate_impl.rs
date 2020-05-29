@@ -110,54 +110,34 @@ fn write_non_fixed_size_structure(
     }}
     impl<'a> Structure<'a> for Structure{spec} {{
         type RefTuple = {tuple};
-        fn to_tuple(&'a self) -> {tuple} {{",
+        fn to_tuple(&'a self) -> {tuple} {{ (",
         spec = escaped,
         alignment = alignment,
         tuple = tuple,
     )?;
 
-    if n_frame_offsets > 0 {
+    for ((n, child), (i, a, b, c)) in children.iter().enumerate().zip(generate_table(children)) {
         writeln!(
             code,
             "
-            let osz = ::gvariant::offset_size(self.data.len());"
-        )?;
-    }
-    for ((n, child), (i, a, b, c)) in children.iter().enumerate().zip(generate_table(children)) {
-        let fo_plus = if i == -1 {
-            "".to_string()
-        } else {
-            format!("nth_last_frame_offset(&self.data, osz, {}) + ", i)
-        };
-        writeln!(code, "\n            // {ty}\n            let offset_{n} : AlignedOffset<::gvariant::aligned_bytes::A{calign}> = align_offset::<::gvariant::aligned_bytes::A{b}>({fo_plus}{a}) | AlignedOffset::<::gvariant::aligned_bytes::A{calign}>::try_new({c}).unwrap();",
-            ty=child.to_string(), n=n, a=a, b=b, c=c, fo_plus=fo_plus, calign=align_of(child))?;
-        let end = if let Some(size) = size_of(child) {
-            format!("offset_{n}.to_usize() + {size}", n = n, size = size)
-        } else if n == children.len() - 1 {
-            if n_frame_offsets == 0 {
-                "self.data.len()".to_string()
-            } else {
-                format!(
-                    "self.data.len() - osz as usize * {n_frame_offsets}",
-                    n_frame_offsets = n_frame_offsets
-                )
-            }
-        } else {
-            format!("nth_last_frame_offset(&self.data, osz, {i})", i = i + 1)
-        };
-        writeln!(
-            code,
-            "            let end_{n} : usize = {end};",
-            n = n,
-            end = end
-        )?;
-    }
-    writeln!(code, "            (")?;
-    for (n, child) in children.iter().enumerate() {
-        writeln!(
-            code,
-            "                &<{m}>::from_aligned_slice(&self.data.as_aligned()[..end_{n}][offset_{n}..]),",
-            n = n, m=marker_type(child)
+            // {ty}
+            get_child_elem::<{marker_type}, aligned_bytes::A{b}>(
+                self.data.as_aligned(),
+                {i},
+                {a},
+                {c},
+                {child_size:?},
+                {last_child},
+                {n_frame_offsets}),",
+            ty = child.to_string(),
+            marker_type = marker_type(child),
+            i = i,
+            a = a,
+            b = b,
+            c = c,
+            child_size = size_of(child),
+            last_child = (n == children.len() - 1),
+            n_frame_offsets = n_frame_offsets
         )?;
     }
     writeln!(

@@ -10,7 +10,10 @@ use core::{borrow::Borrow, convert::TryFrom, fmt::Display, marker::PhantomData};
 /// Use `.try_new()`, `<usize>.try_into()` or `align_offset()` to construct
 /// values of this type.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AlignedOffset<A: Alignment>(usize, PhantomData<A>);
+pub struct AlignedOffset<A: Alignment>(usize, PhantomData<A>)
+where
+    Self: core::ops::BitOr,
+    <Self as core::ops::BitOr>::Output: Into<Self>;
 impl<A: Alignment> AlignedOffset<A> {
     /// Convert to usize
     pub fn to_usize(&self) -> usize {
@@ -110,18 +113,24 @@ macro_rules! impl_bitor {
         }
     };
 }
-impl_bitor!(A1, A2, A1);
-impl_bitor!(A1, A4, A1);
-impl_bitor!(A1, A8, A1);
-impl_bitor!(A2, A1, A1);
-impl_bitor!(A2, A4, A2);
-impl_bitor!(A2, A8, A2);
-impl_bitor!(A4, A1, A1);
-impl_bitor!(A4, A2, A2);
-impl_bitor!(A4, A8, A4);
-impl_bitor!(A8, A1, A1);
-impl_bitor!(A8, A2, A2);
-impl_bitor!(A8, A4, A4);
+macro_rules! narrowing {
+    ($big:ty, $small:ty) => {
+        impl_bitor!($big, $small, $small);
+        impl_bitor!($small, $big, $small);
+        impl From<AlignedOffset<$big>> for AlignedOffset<$small> {
+            fn from(v: AlignedOffset<$big>) -> Self {
+                AlignedOffset::<$small>(v.0, PhantomData)
+            }
+        }
+    };
+}
+
+narrowing!(A2, A1);
+narrowing!(A4, A1);
+narrowing!(A8, A1);
+narrowing!(A4, A2);
+narrowing!(A8, A2);
+narrowing!(A8, A4);
 
 #[cfg(test)]
 #[cfg(feature = "alloc")]
