@@ -13,7 +13,13 @@ pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Erro
             out += generate_tuple(&spec, children)?.as_ref();
             out
         }
-        GVariantType::DictItem(_) => todo!(),
+        GVariantType::DictItem(children) => {
+            let mut out = "".to_string();
+            out += generate_types(&children[0])?.as_ref();
+            out += generate_types(&children[1])?.as_ref();
+            out += generate_tuple(&spec, children.as_ref())?.as_ref();
+            out
+        }
         GVariantType::A(x) => generate_types(x)?,
         GVariantType::M(x) => generate_types(x)?,
 

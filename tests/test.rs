@@ -1,5 +1,6 @@
 use gvariant::aligned_bytes::{copy_to_align, AsAligned};
 use gvariant::{gv, Marker, Structure};
+use std::collections::HashMap;
 
 #[test]
 fn test_basic_types() {
@@ -46,6 +47,36 @@ fn test_complex_types() {
     assert_eq!(d.0, b"my-dir".as_ref());
     assert_eq!(d.1, b"\x03\x14\x15\x92");
     assert_eq!(d.2, b"\x65\x35");
+
+    let buf = copy_to_align(include_bytes!(
+        "0bf6200211dd4fd63be6e9bc5c90bea645e2696c0117b05f83562081813a5b94.commit"
+    ));
+    let commit = gv!("(a{sv}aya(say)sstayay)").cast(buf.as_ref());
+    let (
+        metadata,
+        _parent_checksum,
+        _related_objects,
+        _subject,
+        _body,
+        timestamp,
+        _root_tree,
+        _root_tree_meta,
+    ) = commit.into();
+    println!("{:?}", commit);
+    let metadata: HashMap<_, _> = metadata
+        .iter()
+        .map(|x| x.to_tuple())
+        .map(|x| (x.0.to_bytes(), x.1))
+        .collect();
+    assert_eq!(
+        metadata[b"version".as_ref()]
+            .get(gv!("s"))
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "7.1707"
+    );
+    assert_eq!(*timestamp, 15444671992342511616);
 }
 
 #[test]

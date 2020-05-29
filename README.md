@@ -63,13 +63,12 @@ fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
 
 ## Status
 
-* Support for all GVariant types is implemented apart from dict entries
+* Support for all GVariant types is implemented
 * Serialisation is not currently supported, but may be implemented in a future
   version, or possibly as a seperate crate.
 
 ### TODO
 
-* Implement support for dict items
 * Correct handling of non-normal structs
 * Add no-std and no-alloc support
 * Fuzz testing - compare against the GLib version
