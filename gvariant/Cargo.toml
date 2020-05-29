@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["William Manley <will@stb-tester.com>"]
 edition = "2018"
 description = "A pure-rust implementation of the GVariant serialisation format"
-readme = "README.md"
+readme = "../README.md"
 repository = "https://github.com/wmanley/gvariant-rs/"
 homepage = "https://github.com/wmanley/gvariant-rs/"
 license = "MIT OR Apache-2.0"
@@ -15,4 +15,4 @@ categories = ["encoding", "no-std"]
 
 [dependencies]
 ref-cast = "1.0"
-gvariant-macro = {path = "../gvariant-macro"}
+gvariant-macro = {path = "../gvariant-macro", version = "0.1.0"}
