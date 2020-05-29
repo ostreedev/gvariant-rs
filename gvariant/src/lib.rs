@@ -280,7 +280,9 @@ macro_rules! gv {
     }};
 }
 
-pub trait Cast: casting::AlignOf + casting::AllBitPatternsValid + 'static + PartialEq {
+pub trait Cast:
+    casting::AlignOf + casting::AllBitPatternsValid + 'static + PartialEq + Debug
+{
     fn default_ref() -> &'static Self;
     fn try_from_aligned_slice(
         slice: &AlignedSlice<Self::AlignOf>,
@@ -335,7 +337,7 @@ impl_cast_for!(f64, 0.);
 /// We can't use Rust's `str` type because, although UTF-8 is "expected and
 /// encouraged" it is not guaranteed. We can't use `&[u8]` here because GVariant
 /// strings always end with a NUL byte.
-#[derive(Debug, RefCast, Eq)]
+#[derive(RefCast, Eq)]
 #[repr(transparent)]
 pub struct Str {
     data: [u8],
@@ -451,6 +453,11 @@ impl Display for Str {
         std::fmt::Display::fmt(&String::from_utf8_lossy(self.to_bytes()).as_ref(), f)
     }
 }
+impl Debug for Str {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&String::from_utf8_lossy(self.to_bytes()).as_ref(), f)
+    }
+}
 
 /// The GVariant Variant **v** type
 ///
@@ -477,7 +484,7 @@ impl Display for Str {
 /// Therefore [`Variant`] implements [`PartialEq`], but not [`Eq`] because the
 /// comparison is not "reflexive".
 
-#[derive(Debug, RefCast)]
+#[derive(RefCast)]
 #[repr(transparent)]
 pub struct Variant(AlignedSlice<A8>);
 unsafe impl AlignOf for Variant {
@@ -499,7 +506,17 @@ impl Cast for Variant {
         Ok(Self::ref_cast_mut(slice))
     }
 }
-
+impl Debug for Variant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (gv_type, data) = self.split();
+        write!(
+            f,
+            "Variant {{ type: {:?}, data: {:?} }}",
+            std::string::String::from_utf8_lossy(gv_type).as_ref(),
+            data.as_ref() as &[u8]
+        )
+    }
+}
 impl Variant {
     /// Get the value from the variant, if it matches the type passed in.
     ///
@@ -666,10 +683,20 @@ fn read_last_frame_offset(data: &[u8]) -> (OffsetSize, usize) {
 /// or iterated over.
 ///
 /// For fixed-width types a standard rust slice is used.
-#[derive(RefCast, Debug)]
+#[derive(RefCast)]
 #[repr(transparent)]
 pub struct NonFixedWidthArray<T: Cast + ?Sized> {
     data: AlignedSlice<T::AlignOf>,
+}
+
+impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for child in self {
+            write!(f, "{:?}, ", child)?;
+        }
+        write!(f, "]")
+    }
 }
 
 unsafe impl<T: Cast + ?Sized> AlignOf for NonFixedWidthArray<T> {
@@ -863,10 +890,15 @@ impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArr
 /// You probably just want to call `.to_option()` on this type.
 
 #[repr(transparent)]
-#[derive(Debug, RefCast)]
+#[derive(RefCast)]
 pub struct MaybeFixedSize<T: Cast> {
     marker: PhantomData<T>,
     data: AlignedSlice<T::AlignOf>,
+}
+impl<T: Cast + Debug> Debug for MaybeFixedSize<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_option().fmt(f)
+    }
 }
 impl<T: Cast> MaybeFixedSize<T> {
     /// Convert to a rust native [`Option`] type.
@@ -951,11 +983,16 @@ impl<T: Cast + AlignOf> Cast for MaybeFixedSize<T> {
 /// fixed-sized or not.  [`MaybeFixedSize`] is used when the contained size is
 /// fixed, but it implements the same interface as this type.
 
-#[derive(Debug, RefCast)]
+#[derive(RefCast)]
 #[repr(transparent)]
 pub struct MaybeNonFixedSize<T: Cast + ?Sized> {
     marker: PhantomData<T>,
     data: AlignedSlice<T::AlignOf>,
+}
+impl<T: Cast + Debug + ?Sized> Debug for MaybeNonFixedSize<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_option().fmt(f)
+    }
 }
 impl<T: Cast + ?Sized> MaybeNonFixedSize<T> {
     /// Convert to a rust native [`Option`] type.
@@ -1034,12 +1071,17 @@ impl<T: Cast + PartialEq> PartialEq<MaybeNonFixedSize<T>> for Option<&T> {
 /// so we need our own type here.  Rust's must either be `0x00` (`false`) or
 /// `0x01` (`true`), while with GVariant any value in the range `0x01..=0xFF` is
 /// `true`.
-#[derive(Debug, RefCast, Eq)]
+#[derive(RefCast, Eq)]
 #[repr(transparent)]
 pub struct Bool(u8);
 impl Bool {
     pub fn to_bool(&self) -> bool {
         self.0 > 0
+    }
+}
+impl Debug for Bool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.to_bool(), f)
     }
 }
 unsafe impl AllBitPatternsValid for Bool {}

@@ -39,6 +39,15 @@ fn generate_tuple(
     } else {
         write_non_fixed_size_structure(spec, children, &mut out)
     }?;
+    write!(
+        out,
+        "impl std::fmt::Debug for Structure{} {{
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+            std::fmt::Debug::fmt(&self.to_tuple(), f)
+        }}
+    }}",
+        escape(spec.to_string())
+    )?;
     Ok(String::from_utf8(out).unwrap())
 }
 
@@ -73,7 +82,6 @@ fn write_non_fixed_size_structure(
     write!(
         code,
         "
-    #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct Structure{spec} {{
         data: AlignedSlice<aligned_bytes::A{alignment}>,
@@ -323,7 +331,7 @@ fn write_packed_struct(
     children: &[GVariantType],
     out: &mut impl std::io::Write,
 ) -> Result<(), Box<dyn Error>> {
-    writeln!(out, "#[derive(Default,Debug,Copy,Clone)]")?;
+    writeln!(out, "#[derive(Default,Copy,Clone)]")?;
     writeln!(out, "#[repr(C)]")?;
     let escaped = escape(gv.to_string());
 
