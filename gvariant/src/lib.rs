@@ -2,18 +2,21 @@
 //! fast reading of in-memory buffers.
 //!
 //! ```rust
-//! let data = b"It works!\0";
-//! let string = gv!("s").cast(data.as_aligned()).to_bytes();
-//! assert_eq!(string, b"It works!");
+//! let data = copy_to_align(b"\22\x00\x00\x00William\0");
+//! let (age, name) = gv!("(is)").cast(data.as_ref()).into();
+//! assert_eq!(
+//!     format!("My name is {} and I am {} years old!", name, age),
+//!     "My name is William and I am 34 years old!");
 //! ```
 //!
 //! This library operates by reinterpreting byte buffers as a GVariant type. It
 //! doesn't do any of its own allocations.  As a result proper alignment of byte
-//! buffers is the responsibility of the user.  See "Alignment of data" below.
+//! buffers is the responsibility of the user.  See [`aligned_bytes`].
 //!
-//! It's intended to conform to the GVariant specification and match the
+//! It's intended to conform to the [GVariant specification] and match the
 //! behaviour of the [GLib implementation].  Exceptions to this are described in
-//! "Deviations from the Specification" below.
+//! ["Deviations from the Specification"](#deviations-from-the-specification)
+//! below.
 //!
 //! This library assumes you know the types of the data you are dealing with at
 //! compile time.  This is in contrast to the GLib implementation where you
@@ -24,18 +27,18 @@
 //! subdirectory.
 //!
 //! The library is intended to be sound and safe to run on untrusted input,
-//! although the implementation does include use of `unsafe`.  See "Use of
-//! `unsafe`" below. Help with validating the unsafe portions of the library
-//! would be gratefully received.
+//! although the implementation does include use of `unsafe`.  See ["Use of
+//! `unsafe`"](#use-of-unsafe) below. Help with validating the unsafe portions
+//! of the library would be gratefully received.
 //!
 //! This library works Rust stable.  As a result we can't use const-generics,
 //! which would make some of the code much more streightforward.  A future
 //! version of this library may use const-generics, once they are available in
 //! stable rust.
 //!
-//! [GLib implementation]:
-//! https://developer.gnome.org/glib/stable/glib-GVariant.html [GVariant Schema
-//! Compiler]: https://gitlab.gnome.org/alexl/variant-schema-compiler/
+//! [GLib implementation]: https://developer.gnome.org/glib/stable/glib-GVariant.html
+//! [GVariant Schema Compiler]: https://gitlab.gnome.org/alexl/variant-schema-compiler/
+//! [GVariant specification]: https://people.gnome.org/~desrt/gvariant-serialisation.pdf
 //!
 //! ## Status
 //!
@@ -61,7 +64,7 @@
 //! >This fact (along with the absence of other limitations in the serialisation
 //! >format) allows for values of arbitrary size.
 //!
-//! In this implementation the maximum size of an object is usize (typically
+//! In this implementation the maximum size of an object is [`usize`] (typically
 //! 64-bits).  This should not be a problem in practice on 64-bit machines.
 //!
 //! ### Equality of Variant **v** type for non-normal form data
@@ -74,10 +77,11 @@
 //! such that they compile down to simple memory accesses, like reading the
 //! fields of a struct.  For many of the GVariant types rust already has a type
 //! with the same representation (such as `i32` for **i** or `[u8]` for **ay**).
-//! For other types this library defines such types (such as `gvariant::Str` for
-//! **s** or `gvariant::NonFixedWidthArray<[i32]>` for **aai**).  For structure
-//! types this library provides a macro `gv!` to generate the code for struct
-//! types.
+//! For other types this library defines such types (such as
+//! [`gvariant::Str`][Str] for **s** or
+//! [`gvariant::NonFixedWidthArray<[i32]>`][NonFixedWidthArray] for **aai**).
+//! For structure types this library provides a macro [`gv!`] to generate the
+//! code for struct types.
 //!
 //! If we have a type with the same representation as the underlying bytes we
 //! can just cast the data to the appropriate type and then read it.  The macro
@@ -105,19 +109,17 @@
 //! ## Comparison to and relationship with other projects
 //!
 //! * [GVariant Schema Compiler] - Similar to this project the GSC generates
-//!   code at compile time to represent the types the user is interested in.
-//!   GSC targets the C language.  Unlike this project the types are generated
-//!   from schema files, allowing structures to have named fields.  In
-//!   gvariant-rs we generate our code just from the plain GVariant type strings
-//!   using macros.  This makes the build process simpler - there are no
-//!   external tools, and it makes it easier to get started - there is no new
-//!   schema format to learn.  The cost is that the user is responsible for
-//!   remember which field means what and what endianness should be used to
-//!   interpret the data.
+//!   code at compile time to represent the types the user is interested in. GSC
+//!   targets the C language.  Unlike this project the types are generated from
+//!   schema files, allowing structures to have named fields.  In gvariant-rs we
+//!   generate our code just from the plain GVariant type strings using macros.
+//!   This makes the build process simpler - there are no external tools, and it
+//!   makes it easier to get started - there is no new schema format to learn.
+//!   The cost is that the user is responsible for remember which field means
+//!   what and what endianness should be used to interpret the data.
 //!
 //!   It might make sense in the future to extend GSC to generate rust code as
-//!   well
-//!   - in which case the generated code may depend on this library.
+//!   well - in which case the generated code may depend on this library.
 //! * [gtk-rs glib::variant](https://gtk-rs.org/docs/glib/variant/index.html) -
 //!   This is a binding to the GLib GVariant implementation in C, so depends on
 //!   glib. It's currently incomplete.  The docs say "Although `GVariant`
@@ -128,7 +130,7 @@
 //!   DBus serialisation format rather than GVariant.  Docs say: "GVariant ...
 //!   will be supported by a future version of this crate."
 //! * [serde_gvariant](https://github.com/lucab/serde_gvariant) - Implements the
-//!   same format, but for serde integration.  Described as WIP and not
+//!   same format, but for serde integration.  Described as "WIP" and not
 //!   published on crates.io
 
 use std::{
@@ -278,9 +280,34 @@ macro_rules! gv {
     }};
 }
 
+/// Trait implemented by all our types that have the same representation as the
+/// GVariant type
+///
+/// This allows casting appropriately aligned [`AlignedSlice`]s to rust types.
+///
+/// Don't implement this class for your own types.  It's already implemented for
+/// all appropriate types.  It's automatically implemented for [`Structure`]
+/// types generated by the [`gv!`] macro.
 pub trait Cast:
     casting::AlignOf + casting::AllBitPatternsValid + 'static + PartialEq + Debug
 {
+    /// Cast `slice` to type `Self`.
+    ///
+    /// This always succeeds.  If the slice is the wrong size a defualt value is
+    /// returned in accordance with the GVariant spec.
+    fn from_aligned_slice(slice: &AlignedSlice<Self::AlignOf>) -> &Self {
+        match Self::try_from_aligned_slice(slice) {
+            Ok(x) => x,
+            Err(_) => Self::default_ref(),
+        }
+    }
+
+    /// Get a static reference to the default value for this type.
+    ///
+    /// In GVariant every type has a default value which is used in certian
+    /// circumstances in-lieu of returning errors during deserialisation.  We're
+    /// always dealing with references so [`std::default::Default`] isn't
+    /// appropriate.
     fn default_ref() -> &'static Self;
     fn try_from_aligned_slice(
         slice: &AlignedSlice<Self::AlignOf>,
@@ -288,12 +315,6 @@ pub trait Cast:
     fn try_from_aligned_slice_mut(
         slice: &mut AlignedSlice<Self::AlignOf>,
     ) -> Result<&mut Self, casting::WrongSize>;
-    fn from_aligned_slice(slice: &AlignedSlice<Self::AlignOf>) -> &Self {
-        match Self::try_from_aligned_slice(slice) {
-            Ok(x) => x,
-            Err(_) => Self::default_ref(),
-        }
-    }
 }
 
 macro_rules! impl_cast_for {
@@ -585,7 +606,7 @@ impl PartialEq for Variant {
 //
 // We implement this a normal rust slice.
 
-impl<'a, T: Cast + casting::AlignOf + AllBitPatternsValid + Sized + 'static> Cast for [T] {
+impl<'a, T: Cast + 'static> Cast for [T] {
     fn default_ref() -> &'static Self {
         &[]
     }
@@ -949,7 +970,7 @@ unsafe impl<T: Cast> AlignOf for MaybeFixedSize<T> {
 }
 unsafe impl<T: Cast> AllBitPatternsValid for MaybeFixedSize<T> {}
 
-impl<T: Cast + AlignOf> Cast for MaybeFixedSize<T> {
+impl<T: Cast> Cast for MaybeFixedSize<T> {
     fn default_ref() -> &'static Self {
         Self::ref_cast(empty_aligned())
     }
@@ -1097,11 +1118,19 @@ impl PartialEq for Bool {
     }
 }
 
-/// A trait that all generated structure types implement
+/// A trait that all generated structure types implement.
 ///
-/// This exists mostly to document the interface of the generated types.
-pub trait Structure<'a>: PartialEq {
+/// This exists mostly to document the interface of the generated types.  Don't
+/// implement this for your own types.
+///
+/// All structures also implement `Into<Self::RefTuple>`.
+pub trait Structure<'a>: Cast + Debug + casting::AlignOf + casting::AllBitPatternsValid {
+    /// This a tuple of refs, one for each structure element
+    ///
+    /// For **(is)** this will be `(&'a i32, &'a Str)`.
     type RefTuple;
+
+    /// Convert this struct to a rust tuple
     fn to_tuple(&'a self) -> Self::RefTuple;
 }
 

@@ -1,13 +1,14 @@
 //! Byte slices with statically guaranteed alignment
 //!
-//! The gvariant crates operates by reinterpreting byte buffers as a Rust type
-//! type. For these casts to be valid the alignment of the underlying data must
-//! be sufficient for the target type.  We don't perform any of our own
+//! The gvariant crates operates by reinterpreting byte buffers as a Rust type.
+//! For these casts to be valid the alignment of the underlying data must be
+//! sufficient for the target type.  We don't perform any of our own
 //! allocations, relying on data passed from the user, as a result proper
 //! alignment of byte buffers is the responsibility of the user.
 //!
-//! This library defines a type [`AlignedSlice<A>`] which represents an aligned
-//! byte buffer aligned to the alignment given by `A`.  `A` may be:
+//! This library defines a type [`AlignedSlice<A>`][AlignedSlice] which
+//! represents an aligned byte buffer aligned to the alignment given by `A`. `A`
+//! may be:
 //!
 //! * [`A1`] - 1B aligned aka unaligned
 //! * [`A2`] - 2B aligned
@@ -28,7 +29,7 @@
 //! appropriate alignment convenient.  For example: use a `&impl AsAligned<A2>`
 //! parameter to accept any data with 2B or greater alignment.
 //!
-//! `alloc_aligned` is provided to make it easy and safe to create aligned
+//! [`alloc_aligned`] is provided to make it easy and safe to create aligned
 //! buffers. Example reading data from file into aligned buffer:
 //!
 //! ```rust
@@ -38,7 +39,7 @@
 //! ```
 //!
 //! I've not yet implemented it, but it may become necessary to create an
-//! equivalent to `Vec<>` but for aligned memory.  We'll see how we get on.
+//! equivalent to `Vec<u8>` but for aligned memory.  We'll see how we get on.
 //!
 //! #### Efficiency of statically known alignment
 //!
@@ -147,7 +148,7 @@ unsafe impl AlignedTo<A8> for A8 {}
 
 /// Allows narrowing the alignment of a `&AlignedSlice`
 ///
-/// This can be convenient to accept any `AlignedSlice` with sufficient
+/// This can be convenient to accept any [`AlignedSlice`] with sufficient
 /// alignment as an argument to a function.  For example:
 ///
 ///     fn foo(data : &impl AsAligned<A2>) {

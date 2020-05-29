@@ -1,3 +1,5 @@
+//! This is an implementation detail of the [gvariant](../gvariant/index.html) crate
+
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use std::error::Error;
