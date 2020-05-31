@@ -2,7 +2,8 @@
 //! fast reading of in-memory buffers.
 //!
 //! ```rust
-//! let data = copy_to_align(b"\22\x00\x00\x00William\0");
+//! # use gvariant::{aligned_bytes::copy_to_align, gv, Marker};
+//! let data = copy_to_align(b"\x22\x00\x00\x00William\0");
 //! let (age, name) = gv!("(is)").cast(data.as_ref()).into();
 //! assert_eq!(
 //!     format!("My name is {} and I am {} years old!", name, age),
@@ -65,8 +66,9 @@
 //!
 //! Required for:
 //!
-//! * Allocating [`AlignedSlice`]s with [`ToOwned`], [`copy_to_align`] and
-//!   [`alloc_aligned`].
+//! * Allocating [`AlignedSlice`]s with [`ToOwned`],
+//!   [`copy_to_align`][aligned_bytes::copy_to_align] and
+//!   [`alloc_aligned`][aligned_bytes::alloc_aligned].
 //! * Correctly displaying non-utf-8 formatted strings
 //! * The std feature
 //!
@@ -109,9 +111,15 @@
 //!
 //! So typically code might look like:
 //!
+//!     # use gvariant::{aligned_bytes::alloc_aligned, gv, Marker};
+//!     # use std::io::Read;
+//!     # fn a() -> std::io::Result<()> {
+//!     # let mut file = std::fs::File::open("")?;
 //!     let mut buf = alloc_aligned(4096);
-//!     let len = file.read(buf)?
-//!     let data = <gv!("a(sia{sv})")>::from_aligned_bytes(&buf[..len]);
+//!     let len = file.read(&mut buf)?;
+//!     let data = gv!("a(sia{sv})").cast(&buf[..len]);
+//!     # todo!()
+//!     # }
 //!
 //! For casting data to be valid and safe the byte buffer must be aligned...
 //!
@@ -225,15 +233,19 @@ pub trait Marker {
 ///
 /// This is the main entrypoint to the library.
 ///
-/// Given `data` that you want to interpret as a GVariant of type **(as)** you
+/// Given `data` that you want to interpret as a GVariant of type **as** you
 /// write:
 ///
-///     gv!("(as)").cast(data)
+///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # let data = empty_aligned();
+///     gv!("as").cast(data);
 ///
-/// Similarly if you want to interpret some data in a variant as an **(as)** you
+/// Similarly if you want to interpret some data in a variant as an **as** you
 /// write:
 ///
-///     v.get(gv!("(as)"))
+///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker, Variant};
+///     # let v = gv!("v").cast(empty_aligned());
+///     v.get(gv!("as"));
 ///
 /// The returned marker has a automatically generated type.  `Marker::TYPESTR`
 /// will equal the typestr passed into the `gv!` invocation.  `Marker::Type` is
@@ -374,7 +386,9 @@ impl_cast_for!(f64, 0.);
 ///
 /// This is the type returned by:
 ///
-///     gv!("s").cast(data)
+///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # let data = empty_aligned();
+///     gv!("s").cast(data);
 ///
 /// We can't use Rust's `str` type because, although UTF-8 is "expected and
 /// encouraged" it is not guaranteed. We can't use `&[u8]` here because GVariant
@@ -597,7 +611,9 @@ impl Variant {
     ///
     /// Example:
     ///
-    ///     let a = v.get(gv!("ai"))?
+    ///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker, Variant};
+    ///     # let v = gv!("v").cast(empty_aligned());
+    ///     let a = v.get(gv!("ai"));
     ///     // a now has type &[i32]
     pub fn get<M: Marker>(&self, m: M) -> Option<&M::Type>
     where
@@ -616,11 +632,16 @@ impl Variant {
     ///
     /// Example use:
     ///
+    ///     # use gvariant::{aligned_bytes::{A8, copy_to_align, empty_aligned}, gv, Variant, Marker};
+    ///     # let data = copy_to_align::<A8>(b"a\0(is)");
+    ///     # let data = data.as_ref();
+    ///     # let v = gv!("v").cast(data);
     ///     match v.split() {
-    ///         ("(is)", _) => {
+    ///         (b"(is)", _) => {
     ///             let s = v.get(gv!("(is)"));
     ///             // Do something with s
     ///         }
+    ///         (ty, _) => panic!("Unexpected variant type {:?}", ty)
     ///     }
     pub fn split(&self) -> (&[u8], &AlignedSlice<A8>) {
         // Variants are serialised by storing the serialised data of the child,
@@ -952,9 +973,12 @@ impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArr
 ///
 /// This is the type returned by:
 ///
-///     gv!("mb").cast(data)
-///     gv!("mi").cast(data)
-///     gv!("m(yi)").cast(data)
+///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # let data = empty_aligned();
+///     gv!("mb").cast(data);
+///     # let data = empty_aligned();
+///     gv!("mi").cast(data);
+///     gv!("m(yi)").cast(data);
 ///
 /// Rust's built in [`Option`] doesn't have any specified byte representation so
 /// we need our own type here.
@@ -1048,9 +1072,12 @@ impl<T: Cast> Cast for MaybeFixedSize<T> {
 ///
 /// This is the type returned by:
 ///
-///     gv!("ms").cast(data)
-///     gv!("mmi").cast(data)
-///     gv!("m(ias)").cast(data)
+///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # let data = empty_aligned();
+///     gv!("ms").cast(data);
+///     # let data = empty_aligned();
+///     gv!("mmi").cast(data);
+///     gv!("m(ias)").cast(data);
 ///
 /// Rust's built in [`Option`] doesn't have any specified byte representation so
 /// we need our own type here.
@@ -1141,7 +1168,8 @@ impl<T: Cast + PartialEq> PartialEq<MaybeNonFixedSize<T>> for Option<&T> {
 ///
 /// This is the type returned by:
 ///
-///     gv!("b").cast(b"\0".as_aligned())
+///     # use gvariant::{aligned_bytes::AsAligned, gv, Marker};
+///     gv!("b").cast(b"\0".as_aligned());
 ///
 /// Rust's built in [`bool`] doesn't have the same representation as GVariant's,
 /// so we need our own type here.  Rust's must either be `0x00` (`false`) or

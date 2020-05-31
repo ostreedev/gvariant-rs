@@ -33,9 +33,14 @@
 //! buffers. Example reading data from file into aligned buffer:
 //!
 //! ```rust
-//! let buf = alloc_aligned::<A8>(4096);
+//! # use gvariant::aligned_bytes::{A8, alloc_aligned};
+//! # use std::io::Read;
+//! # fn foo() -> Result<(), Box<dyn std::error::Error>> {
+//! # let mut file = std::fs::File::open("")?;
+//! let mut buf = alloc_aligned::<A8>(4096);
 //! let len = file.read(buf.as_mut())?;
 //! let aligned_data = &buf[..len];
+//! # Ok(()) }
 //! ```
 //!
 //! I've not yet implemented it, but it may become necessary to create an
@@ -104,11 +109,16 @@ pub unsafe trait Alignment: Debug {
 ///
 /// It can be used as a type constraint in where clauses like so:
 ///
+///     # use gvariant::aligned_bytes::{A4, AlignedTo};
+///     # fn x<A>()
 ///     where A : AlignedTo<A4>
+///     # {}
 ///
 /// which means:
 ///
-///     where A::ALIGNMENT >= 4
+/// ```ignore
+/// where A::ALIGNMENT >= 4
+/// ```
 pub unsafe trait AlignedTo<A: Alignment>: Alignment {}
 
 /// 1-byte alignment e.g. no alignment
@@ -157,12 +167,17 @@ unsafe impl AlignedTo<A8> for A8 {}
 /// This can be convenient to accept any [`AlignedSlice`] with sufficient
 /// alignment as an argument to a function.  For example:
 ///
+///     # use gvariant::aligned_bytes::{A2, AsAligned};
+
 ///     fn foo(data : &impl AsAligned<A2>) {
 ///         let data = data.as_aligned();
-///         ...
+///     # }
 ///
 /// or if a function requires a specific alignment you can do:
 ///
+///     # use gvariant::aligned_bytes::{A2, A4, AlignedSlice, AsAligned, empty_aligned};
+///     # fn bar(a: &AlignedSlice<A2>) {}
+///     # let data = empty_aligned::<A4>();
 ///     bar(data.as_aligned());
 ///
 /// Mostly we convert from `AlignedSlice<A8>` -> `AlignedSlice<A4>` ->
