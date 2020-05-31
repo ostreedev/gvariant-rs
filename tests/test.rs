@@ -1,4 +1,4 @@
-use gvariant::aligned_bytes::{copy_to_align, AsAligned};
+use gvariant::aligned_bytes::{copy_to_align, AsAligned, empty_aligned};
 use gvariant::{gv, Marker, Structure};
 use std::collections::HashMap;
 
@@ -12,6 +12,12 @@ fn test_basic_types() {
 
 #[test]
 fn test_struct_into_tuple() {
+    let t = gv!("(i)").cast(empty_aligned()).to_tuple();
+    assert_eq!(t, (&0));
+
+    let t = gv!("(s)").cast(empty_aligned()).to_tuple();
+    assert_eq!(t.0.to_bytes(), b"");
+
     let buf = copy_to_align(b"\x06\x00\x00\x00\x03\x00\x00\x00");
     let t: (&i32, &i32) = gv!("(ii)").cast(buf.as_ref()).into();
     assert_eq!(t, (&6, &3));

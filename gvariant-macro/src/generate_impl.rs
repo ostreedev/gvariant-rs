@@ -158,9 +158,9 @@ fn write_non_fixed_size_structure(
         escaped = escaped,
         tuple = types
             .iter()
-            .map(|x| format!("&'a {}", x))
+            .map(|x| format!("&'a {}, ", x))
             .collect::<Vec<String>>()
-            .join(", ")
+            .join("")
     )?;
 
     Ok(())
