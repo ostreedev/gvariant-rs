@@ -321,7 +321,7 @@ fn write_packed_struct(
     let mut field_arglist = vec![];
     let mut get_fields = vec![];
     let mut set_fields = "".to_string();
-    let mut eq = vec![];
+    let mut eq = vec!["true".to_owned()];
     let mut defaults = vec![];
     let mut types = vec![];
     let mut tuple = vec![];

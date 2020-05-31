@@ -12,6 +12,9 @@ fn test_basic_types() {
 
 #[test]
 fn test_struct_into_tuple() {
+    let t = gv!("()").cast(empty_aligned()).to_tuple();
+    assert_eq!(t, ());
+
     let t = gv!("(i)").cast(empty_aligned()).to_tuple();
     assert_eq!(t, (&0));
 
