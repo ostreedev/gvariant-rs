@@ -628,7 +628,8 @@ impl Variant {
         let mut split_pos = None;
         for (n, c) in self.0.rchunks_exact(1).enumerate() {
             if c[0] == b'\0' {
-                split_pos = Some(self.0.len() - n);
+                split_pos = Some(self.0.len() - n - 1);
+                break;
             }
         }
         if let Some(mid) = split_pos {
@@ -1473,7 +1474,7 @@ mod tests {
         let v = Variant::from_aligned_slice(data.as_ref());
         match v.split() {
             (b"n", d) => assert_eq!(*i16::from_aligned_slice(d.as_aligned()), 4),
-            _ => panic!("Incorrect type"),
+            (ty, _) => panic!("Incorrect type {:?}", ty),
         }
     }
 }
