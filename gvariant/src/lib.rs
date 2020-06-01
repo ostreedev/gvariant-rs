@@ -44,12 +44,16 @@
 //! ## Status
 //!
 //! * Support for all GVariant types is implemented
+//! * Behaviour is identical to GLib's implementation for all data in "normal
+//!   form". This has been confirmed with fuzz testing.  There are some
+//!   differences for data not in normal form.   See
+//!   https://gitlab.gnome.org/GNOME/glib/-/issues/2121 for more information.
 //! * Serialisation is not currently supported, but may be implemented in a
 //!   future version, or possibly as a seperate crate.
 //!
 //! ### TODO
 //!
-//! * Fuzz testing - compare against the GLib version
+//! * Fuzz testing of structure types - compare against the GLib version
 //!
 //! ## Features
 //!
