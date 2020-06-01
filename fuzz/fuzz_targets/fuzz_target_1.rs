@@ -109,7 +109,19 @@ int_eq!(u32, glib_sys::g_variant_get_uint32);
 int_eq!(i32, glib_sys::g_variant_get_int32);
 int_eq!(u64, glib_sys::g_variant_get_uint64);
 int_eq!(i64, glib_sys::g_variant_get_int64);
-int_eq!(f64, glib_sys::g_variant_get_double);
+
+impl PartialEq<GLibVariant> for f64 {
+    fn eq(&self, rhs: &GLibVariant) -> bool {
+        let g = unsafe { glib_sys::g_variant_get_double(rhs.variant) };
+        if self.is_nan() {
+            // f64 only implements PartialEq and not Eq because NaN != NaN, but
+            // for our purposes it does.
+            g.is_nan()
+        } else {
+            *self == g
+        }
+    }
+}
 
 impl PartialEq<GLibVariant> for Str {
     fn eq(&self, rhs: &GLibVariant) -> bool {
@@ -239,7 +251,7 @@ fuzz_target!(|data: &[u8]| {
     test_cmp!("u", data);
     test_cmp!("x", data);
     test_cmp!("t", data);
-    //test_cmp!("d", data);
+    test_cmp!("d", data);
     test_cmp!("s", data);
     test_cmp!("o", data);
     test_cmp!("g", data);
