@@ -734,7 +734,7 @@ impl<'a, T: Cast + 'static> Cast for [T] {
 // They are always stored in little-endian byte order.
 
 #[doc(hidden)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum OffsetSize {
     U0 = 0,
     U1 = 1,
@@ -769,7 +769,24 @@ pub fn read_uint(data: &[u8], size: OffsetSize, n: usize) -> usize {
 
 fn read_last_frame_offset(data: &[u8]) -> (OffsetSize, usize) {
     let osz = offset_size(data.len());
-    (osz, read_uint(&data[data.len() - osz as usize..], osz, 0))
+    if osz == OffsetSize::U0 {
+        (OffsetSize::U1, 0)
+    } else {
+        let last = read_uint(&data[data.len() - osz as usize..], osz, 0);
+        if last > data.len() {
+            return (osz, data.len());
+        }
+        let size = data.len() - last;
+        if size % osz as usize == 0 {
+            // Normal form
+            (osz, last)
+        } else {
+            // In the event that the final framing offset of a non-fixed-width
+            // array ... indicates a non-integral number of framing offsets is
+            // present in the array, the value is taken to be the empty array.
+            (osz, data.len())
+        }
+    }
 }
 
 /// Type with same representation as GVariant "aX" type where X is any non-fixed
@@ -819,26 +836,15 @@ impl<T: Cast + ?Sized> Cast for NonFixedWidthArray<T> {
 impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
     /// Returns the number of elements in the array.
     pub fn len(&self) -> usize {
-        if self.data.is_empty() {
-            0
-        } else {
-            // Since determining the length of the array relies on our ability
-            // to count the number of framing offsets and since the number of
-            // framing offsets is determined from how much space they take up,
-            // zero byte framing offsets are not permitted in arrays, even in
-            // the case where all other serialised data has a size of zero. This
-            // special exception avoids having to divide zero by zero and wonder
-            // what the answer is.
-            let (osz, lfo) = read_last_frame_offset(&self.data);
-            if let Some(offsets_len) = usize::checked_sub(self.data.len(), lfo) {
-                match osz {
-                    OffsetSize::U0 => unreachable!(),
-                    x => offsets_len / (x as usize),
-                }
-            } else {
-                0
-            }
-        }
+        // Since determining the length of the array relies on our ability
+        // to count the number of framing offsets and since the number of
+        // framing offsets is determined from how much space they take up,
+        // zero byte framing offsets are not permitted in arrays, even in
+        // the case where all other serialised data has a size of zero. This
+        // special exception avoids having to divide zero by zero and wonder
+        // what the answer is.
+        let (osz, lfo) = read_last_frame_offset(&self.data);
+        (self.data.len() - lfo) / osz as usize
     }
     /// Returns `true` if the array has a length of 0.
     pub fn is_empty(&self) -> bool {
@@ -1445,6 +1451,15 @@ mod tests {
         let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x01\x00".as_aligned());
         let v = assert_array_self_consistent(nfwa);
         assert_eq!(v, [&[1u8] as &[u8], &[]]);
+
+        // Non-normal regression test found by fuzzing. There are a non-integral
+        // number of array elements indicated.  1.5 in this case:
+        let mut data = [0u8; 258];
+        data[256..].copy_from_slice(&255u16.to_le_bytes());
+        let cow = copy_to_align(&data);
+        let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(cow.as_ref());
+        let v = assert_array_self_consistent(nfwa);
+        assert_eq!(v.as_slice(), &[] as &[&[u8]]);
     }
 
     fn assert_array_self_consistent<T: Cast + ?Sized>(a: &NonFixedWidthArray<T>) -> Vec<&T> {
