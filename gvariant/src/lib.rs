@@ -1279,9 +1279,8 @@ where
     let osz = offset_size(data.len());
     let fo = nth_last_frame_offset(data, osz, (i + 1) as usize)?;
 
-    let start: aligned_bytes::AlignedOffset<ChildAlign> = (align_offset::<B>(fo + a).into()
-        | aligned_bytes::AlignedOffset::<ChildAlign>::try_new(c).unwrap())
-    .into();
+    let start: aligned_bytes::AlignedOffset<ChildAlign> = align_offset::<B>(fo + a).into()
+        | aligned_bytes::AlignedOffset::<ChildAlign>::try_new(c).unwrap();
     let end = if let Some(size) = size {
         start.to_usize() + size
     } else if last_child {
