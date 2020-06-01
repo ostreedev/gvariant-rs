@@ -91,6 +91,25 @@
 //!
 //! See note under [`Variant`].
 //!
+//! ### Validation of non-normal form object path "o" and signature "g" types
+//!
+//! The spec says:
+//!
+//! > ### 2.7.3 Handling Non-Normal Serialised Data
+//! >
+//! > #### Invalid Object Path
+//! >
+//! > If the serialised form of an object path is not a valid object path
+//! > followed by a zero byte then the default value is used.
+//! >
+//! > #### Invalid Signature
+//! >
+//! > If the serialised form of a signature string is not a valid DBus signature
+//! > followed by a zero byte then the default value is used.
+//!
+//! We don't currently do any validation of the object path or signature types,
+//! treating them as normal strings.
+//!
 //! ## Design
 //!
 //! The intention is to build abstractions that are transparent to the compiler,

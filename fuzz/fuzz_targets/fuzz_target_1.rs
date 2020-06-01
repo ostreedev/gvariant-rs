@@ -241,8 +241,8 @@ fuzz_target!(|data: &[u8]| {
     test_cmp!("t", data);
     //test_cmp!("d", data);
     test_cmp!("s", data);
-    //test_cmp!("o", data);
-    //test_cmp!("g", data);
+    test_cmp!("o", data);
+    test_cmp!("g", data);
     test_cmp!("v", data);
     test_cmp!("ay", data);
     test_cmp!("ai", data);
