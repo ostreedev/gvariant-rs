@@ -537,7 +537,7 @@ impl core::fmt::Display for DisplayUtf8Lossy<'_> {
 impl core::fmt::Debug for DisplayUtf8Lossy<'_> {
     #[cfg(feature = "alloc")]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Display::fmt(&String::from_utf8_lossy(self.0).as_ref(), f)
+        core::fmt::Debug::fmt(&String::from_utf8_lossy(self.0).as_ref(), f)
     }
     #[cfg(not(feature = "alloc"))]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
