@@ -3,7 +3,7 @@
 use glib_sys;
 use gvariant::{
     aligned_bytes::copy_to_align, gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize,
-    NonFixedWidthArray, Str,
+    NonFixedWidthArray, Str, Variant,
 };
 use libfuzzer_sys::fuzz_target;
 use std::ffi::CStr;
@@ -33,6 +33,13 @@ impl GLibVariant {
             variant_type: 0 as *mut glib_sys::GVariantType,
             variant: variant,
         }
+    }
+    unsafe fn get_data(&self) -> &[u8] {
+        let data = glib_sys::g_variant_get_data(self.variant);
+        std::slice::from_raw_parts(
+            data as *const u8,
+            glib_sys::g_variant_get_size(self.variant),
+        )
     }
     fn is_normal_form(&self) -> bool {
         assert!(!self.variant.is_null());
@@ -195,6 +202,16 @@ where
     }
 }
 
+impl PartialEq<GLibVariant> for Variant {
+    fn eq(&self, rhs: &GLibVariant) -> bool {
+        let g =
+            unsafe { GLibVariant::new_from_gvariant(glib_sys::g_variant_get_variant(rhs.variant)) };
+        let g_ty = unsafe { CStr::from_ptr(glib_sys::g_variant_get_type_string(g.variant)) };
+        let (ty, data) = self.split();
+        ty == g_ty.to_bytes() && data.as_ref() as &[u8] == unsafe { g.get_data() }
+    }
+}
+
 macro_rules! test_cmp {
     ($ty:literal, $data:expr) => {
         let gv = GLibVariant::new($data, concat!($ty, "\0"));
@@ -226,7 +243,7 @@ fuzz_target!(|data: &[u8]| {
     test_cmp!("s", data);
     //test_cmp!("o", data);
     //test_cmp!("g", data);
-    //test_cmp!("v", data);
+    test_cmp!("v", data);
     test_cmp!("ay", data);
     test_cmp!("ai", data);
     test_cmp!("as", data);
