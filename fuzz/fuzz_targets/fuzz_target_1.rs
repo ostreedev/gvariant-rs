@@ -1,7 +1,10 @@
 #![no_main]
 
 use glib_sys;
-use gvariant::{aligned_bytes::copy_to_align, gv, Cast, Marker, NonFixedWidthArray, Str};
+use gvariant::{
+    aligned_bytes::copy_to_align, gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize,
+    NonFixedWidthArray, Str,
+};
 use libfuzzer_sys::fuzz_target;
 use std::ffi::CStr;
 
@@ -145,6 +148,53 @@ where
     }
 }
 
+impl PartialEq<GLibVariant> for Bool {
+    fn eq(&self, rhs: &GLibVariant) -> bool {
+        let g = (unsafe { glib_sys::g_variant_get_boolean(rhs.variant) }) > 0;
+        self.to_bool() == g
+    }
+}
+
+impl<T: Cast> PartialEq<GLibVariant> for MaybeFixedSize<T>
+where
+    T: PartialEq<GLibVariant>,
+{
+    fn eq(&self, rhs: &GLibVariant) -> bool {
+        let g =
+            unsafe { GLibVariant::new_from_gvariant(glib_sys::g_variant_get_maybe(rhs.variant)) };
+        let o = self.to_option();
+        if let Some(val) = o {
+            if g.variant.is_null() {
+                false
+            } else {
+                *val == g
+            }
+        } else {
+            g.variant.is_null()
+        }
+    }
+}
+
+impl<T: Cast + ?Sized> PartialEq<GLibVariant> for MaybeNonFixedSize<T>
+where
+    T: PartialEq<GLibVariant>,
+{
+    fn eq(&self, rhs: &GLibVariant) -> bool {
+        let g =
+            unsafe { GLibVariant::new_from_gvariant(glib_sys::g_variant_get_maybe(rhs.variant)) };
+        let o = self.to_option();
+        if let Some(val) = o {
+            if g.variant.is_null() {
+                false
+            } else {
+                *val == g
+            }
+        } else {
+            g.variant.is_null()
+        }
+    }
+}
+
 macro_rules! test_cmp {
     ($ty:literal, $data:expr) => {
         let gv = GLibVariant::new($data, concat!($ty, "\0"));
@@ -164,7 +214,7 @@ macro_rules! test_cmp {
 }
 
 fuzz_target!(|data: &[u8]| {
-    //test_cmp!("b", data);
+    test_cmp!("b", data);
     test_cmp!("y", data);
     test_cmp!("n", data);
     test_cmp!("q", data);
@@ -174,14 +224,14 @@ fuzz_target!(|data: &[u8]| {
     test_cmp!("t", data);
     //test_cmp!("d", data);
     test_cmp!("s", data);
-    test_cmp!("o", data);
-    test_cmp!("g", data);
+    //test_cmp!("o", data);
+    //test_cmp!("g", data);
     //test_cmp!("v", data);
     test_cmp!("ay", data);
     test_cmp!("ai", data);
     test_cmp!("as", data);
     test_cmp!("aay", data);
-    //test_cmp!("my", data);
-    //test_cmp!("mi", data);
-    //test_cmp!("ms", data);
+    test_cmp!("my", data);
+    test_cmp!("mi", data);
+    test_cmp!("ms", data);
 });
