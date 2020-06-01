@@ -546,5 +546,5 @@ fn align_bytes<'a, A: Alignment>(value: &'a [u8]) -> &'a AlignedSlice<A> {
 ///
 /// This is useful for implementing GVariant default values.
 pub fn empty_aligned<A: Alignment>() -> &'static AlignedSlice<A> {
-    &align_bytes(b"        ")[..1]
+    &align_bytes(b"        ")[..0]
 }
