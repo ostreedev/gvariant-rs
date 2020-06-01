@@ -830,9 +830,13 @@ impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
             // special exception avoids having to divide zero by zero and wonder
             // what the answer is.
             let (osz, lfo) = read_last_frame_offset(&self.data);
-            match osz {
-                OffsetSize::U0 => unreachable!(),
-                x => (self.data.len() - lfo) / (x as usize),
+            if let Some(offsets_len) = usize::checked_sub(self.data.len(), lfo) {
+                match osz {
+                    OffsetSize::U0 => unreachable!(),
+                    x => offsets_len / (x as usize),
+                }
+            } else {
+                0
             }
         }
     }
@@ -892,7 +896,7 @@ pub struct NonFixedWidthArrayIterator<'a, Item: Cast + ?Sized> {
 impl<'a, Item: Cast + 'static + ?Sized> Iterator for NonFixedWidthArrayIterator<'a, Item> {
     type Item = &'a Item;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.offset_idx == self.slice.data.len() {
+        if self.offset_idx >= self.slice.data.len() {
             None
         } else {
             let start = align_offset::<Item::AlignOf>(self.next_start);
@@ -1431,6 +1435,33 @@ mod tests {
         assert_eq!(it.size_hint(), (1, Some(1)));
         it.next();
         assert_eq!(it.size_hint(), (0, Some(0)));
+
+        // Non-normal regression test found by fuzzing:
+        let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x08".as_aligned());
+        let v = assert_array_self_consistent(nfwa);
+        assert_eq!(v.as_slice(), &[] as &[&[u8]]);
+
+        // Non-normal regression test found by fuzzing:
+        let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x01\x00".as_aligned());
+        let v = assert_array_self_consistent(nfwa);
+        assert_eq!(v, [&[1u8] as &[u8], &[]]);
+    }
+
+    fn assert_array_self_consistent<T: Cast + ?Sized>(a: &NonFixedWidthArray<T>) -> Vec<&T> {
+        let v: Vec<_> = a.iter().collect();
+        assert_eq!(a.len(), v.len());
+        for (n, elem) in v.iter().enumerate() {
+            assert_eq!(**elem, a[n]);
+        }
+        v
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_non_fixed_width_array_panic() {
+        // Non-normal regression test found by fuzzing:
+        let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x08".as_aligned());
+        &nfwa[0];
     }
 
     #[test]
