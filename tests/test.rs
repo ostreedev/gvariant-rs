@@ -1,4 +1,4 @@
-use gvariant::aligned_bytes::{copy_to_align, AsAligned, empty_aligned};
+use gvariant::aligned_bytes::{copy_to_align, empty_aligned, AsAligned};
 use gvariant::{gv, Marker, Structure};
 use std::collections::HashMap;
 
