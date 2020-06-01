@@ -71,6 +71,8 @@ fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
 
 * Fuzz testing - compare against the GLib version
 * Publish version 1.0
+* Fix or confirm inconsistencies with the GLib implementation discovered by
+  fuzzing.
 
 ### License
 
