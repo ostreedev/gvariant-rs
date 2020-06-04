@@ -5,7 +5,6 @@ A pure-rust implementation of the GVariant serialisation format intended for
 fast reading of in-memory buffers.
 
 ```rust
-    let data = b"It works!\0";
     let string = gv!("s").from_bytes("It works!\0");
     assert_eq!(string, "It works!");
 ```

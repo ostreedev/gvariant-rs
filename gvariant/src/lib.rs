@@ -74,7 +74,9 @@
 //! * Allocating [`AlignedSlice`]s with [`ToOwned`],
 //!   [`copy_to_align`][aligned_bytes::copy_to_align] and
 //!   [`alloc_aligned`][aligned_bytes::alloc_aligned].
+//! * The convenience API `Marker::from_bytes` - use `Marker::cast` instead
 //! * Correctly displaying non-utf-8 formatted strings
+//! * Copying unsized GVariant objects with `to_owned()`
 //! * The std feature
 //!
 //! ## Deviations from the Specification
@@ -248,29 +250,24 @@ pub trait Marker {
         Self::Type::try_from_aligned_slice_mut(data)
     }
 
-    /// Deserialise the given `data`, copying if the data isn't properly
-    /// aligned.
+    /// Deserialise the given `data`, making a copy in the process.
     ///
     /// This is a convenience API wrapper around `copy_to_align` and `cast`
     /// allowing users to not have to think about the alignment of their data.
     /// It is usually better to ensure the data you have is aligned, for example
     /// using `alloc_aligned` or `read_to_slice`, and then use `cast` directly.
     /// This way you can avoid additional allocations, avoid additional copying,
-    /// avoid having to deal with `Cow` types and work in noalloc contexts.
+    /// and work in noalloc contexts.
     ///
     /// Example
     ///
+    ///     # use gvariant::{gv, Marker};
     ///     let v = gv!("s").from_bytes(b"An example string\0");
-    ///     assert_eq(v, "An example string");
+    ///     assert_eq!(&*v, "An example string");
     #[cfg(feature = "alloc")]
-    fn from_bytes<'a>(&self, data: &'a [u8]) -> alloc::borrow::Cow<'a, Self::Type> {
-        let cow = aligned_bytes::copy_to_align(data);
-        match cow {
-            std::borrow::Cow::Borrowed(x) => alloc::borrow::Cow::Borrowed(self.cast(x)),
-            std::borrow::Cow::Owned(x) => {
-                alloc::borrow::Cow::Owned(self.cast(x.as_ref()).to_owned())
-            }
-        }
+    fn from_bytes<'a>(&self, data: impl AsRef<[u8]>) -> <Self::Type as ToOwned>::Owned {
+        let cow = aligned_bytes::copy_to_align(data.as_ref());
+        self.cast(cow.as_ref()).to_owned()
     }
 }
 
@@ -1567,10 +1564,10 @@ mod tests {
 
     #[test]
     fn test_spec_examples() {
-        assert_eq!(gv!("s").cast("hello world\0".as_aligned()), "hello world");
+        assert_eq!(&*gv!("s").from_bytes(b"hello world\0"), "hello world");
         assert_eq!(
             gv!("ms")
-                .cast(b"hello world\0\0".as_aligned())
+                .from_bytes(b"hello world\0\0")
                 .to_option()
                 .unwrap(),
             "hello world"
@@ -1601,9 +1598,7 @@ mod tests {
         // Array of Integers Example
         //
         // With type 'ai':
-        let data = copy_to_align(b"\x04\0\0\0\x02\x01\0\0");
-        let aoi = <[i32]>::from_aligned_slice(data.as_ref());
-        assert_eq!(aoi, [4, 258]);
+        assert_eq!(gv!("ai").from_bytes(b"\x04\0\0\0\x02\x01\0\0"), [4, 258]);
 
         // Dictionary Entry Example
         //
