@@ -87,7 +87,8 @@ use alloc::{
 };
 use core::fmt::Debug;
 use core::ops::{
-    Deref, DerefMut, Index, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+    Deref, DerefMut, Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo,
+    RangeToInclusive,
 };
 
 /// A trait for our alignment structs [`A1`], [`A2`], [`A4`] and [`A8`].
@@ -472,6 +473,79 @@ impl<A: Alignment> Index<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
         // index.start is guaranteed to be a multiple of A::ALIGNMENT, so this
         // is safe:
         unsafe { to_alignedslice_unchecked(&self.data[index.start.to_usize()..]) }
+    }
+}
+impl<A: Alignment> IndexMut<usize> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.data[index]
+    }
+}
+impl<A: Alignment> IndexMut<RangeTo<usize>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: RangeTo<usize>) -> &mut Self::Output {
+        // Truncating the slice on the right doesn't affect the alignment
+        unsafe { to_alignedslice_unchecked_mut(&mut self.data[index]) }
+    }
+}
+impl<A: Alignment> IndexMut<RangeToInclusive<usize>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: RangeToInclusive<usize>) -> &mut Self::Output {
+        // Truncating the slice on the left doesn't affect the alignment
+        unsafe { to_alignedslice_unchecked_mut(&mut self.data[index]) }
+    }
+}
+impl<A: Alignment> IndexMut<Range<usize>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: Range<usize>) -> &mut Self::Output {
+        // Truncating the slice on the left can affect the alignment, so we
+        // return an unaligned slice here
+        self.data[index].as_aligned_mut()
+    }
+}
+impl<A: Alignment> IndexMut<RangeInclusive<usize>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: RangeInclusive<usize>) -> &mut Self::Output {
+        // Truncating the slice on the left can affect the alignment, so we
+        // return an unaligned slice here
+        self.data[index].as_aligned_mut()
+    }
+}
+impl<A: Alignment> IndexMut<RangeFrom<usize>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: RangeFrom<usize>) -> &mut Self::Output {
+        // Truncating the slice on the left can affect the alignment, so we
+        // return an unaligned slice here
+        self.data[index].as_aligned_mut()
+    }
+}
+impl<A: Alignment> IndexMut<RangeFull> for AlignedSlice<A> {
+    fn index_mut(&mut self, _: RangeFull) -> &mut Self::Output {
+        self
+    }
+}
+
+impl<A: Alignment> IndexMut<Range<AlignedOffset<A>>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: Range<AlignedOffset<A>>) -> &mut Self::Output {
+        // index.start and index.end are guaranteed to be a multiple of
+        // A::ALIGNMENT, so this is safe:
+        unsafe {
+            to_alignedslice_unchecked_mut(
+                &mut self.data[index.start.to_usize()..index.end.to_usize()],
+            )
+        }
+    }
+}
+impl<A: Alignment> IndexMut<RangeInclusive<AlignedOffset<A>>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: RangeInclusive<AlignedOffset<A>>) -> &mut Self::Output {
+        // index.start and index.end are guaranteed to be a multiple of
+        // A::ALIGNMENT, so this is safe:
+        unsafe {
+            to_alignedslice_unchecked_mut(
+                &mut self.data[index.start().to_usize()..=index.end().to_usize()],
+            )
+        }
+    }
+}
+impl<A: Alignment> IndexMut<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
+    fn index_mut(&mut self, index: RangeFrom<AlignedOffset<A>>) -> &mut Self::Output {
+        // index.start is guaranteed to be a multiple of A::ALIGNMENT, so this
+        // is safe:
+        unsafe { to_alignedslice_unchecked_mut(&mut self.data[index.start.to_usize()..]) }
     }
 }
 
