@@ -300,16 +300,14 @@ pub trait Marker {
 #[macro_export]
 macro_rules! gv {
     ($typestr:literal) => {{
-        use $crate::Marker;
+        #[allow(unused_imports)]
         mod _m {
             #[macro_use]
-            use $crate::aligned_bytes;
             use $crate::aligned_bytes::{
                 align_offset, empty_aligned, AlignedOffset, AlignedSlice, AsAligned,
             };
             use $crate::casting::{AlignOf, AllBitPatternsValid};
-            use $crate::get_child_elem;
-            use $crate::{Cast, Structure, _define_gv, _gv_type};
+            use $crate::*;
 
             _define_gv!($typestr);
             pub(crate) struct Marker();
@@ -1503,20 +1501,17 @@ mod tests {
 
     #[test]
     fn test_spec_examples() {
+        assert_eq!(gv!("s").cast("hello world\0".as_aligned()), "hello world");
         assert_eq!(
-            Str::from_aligned_slice(b"hello world\0".as_aligned()).to_bytes(),
-            b"hello world"
-        );
-        assert_eq!(
-            MaybeNonFixedSize::<Str>::from_aligned_slice(b"hello world\0\0".as_aligned())
+            gv!("ms")
+                .cast(b"hello world\0\0".as_aligned())
                 .to_option()
-                .unwrap()
-                .to_bytes(),
-            b"hello world"
+                .unwrap(),
+            "hello world"
         );
-        let aob = <[Bool]>::from_aligned_slice([1u8, 0, 0, 1, 1].as_aligned());
+
         assert_eq!(
-            aob.iter().map(|x| x.to_bool()).collect::<Vec<_>>(),
+            gv!("ab").cast(b"\x01\x00\x00\x01\x01".as_aligned()),
             [true, false, false, true, true]
         );
 
@@ -1534,7 +1529,7 @@ mod tests {
         // Array of Bytes Example
         //
         // With type 'ay':
-        let aob = <[u8]>::from_aligned_slice([0x04u8, 0x05, 0x06, 0x07].as_aligned());
+        let aob = gv!("ay").cast([0x04u8, 0x05, 0x06, 0x07].as_aligned());
         assert_eq!(aob, &[0x04u8, 0x05, 0x06, 0x07]);
 
         // Array of Integers Example
