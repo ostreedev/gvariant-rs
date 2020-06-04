@@ -3,11 +3,10 @@ use hex;
 use std::error::Error;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    // Read the data into the buffer
-    let buf = read_to_slice(std::fs::File::open(filename)?, None)?;
-
-    // Interpret as a tree
-    let (files, dirs) = gv!("(a(say)a(sayay))").cast(&buf).to_tuple();
+    // Read the data into the buffer and Interpret as an OSTree tree
+    let (files, dirs) = gv!("(a(say)a(sayay))")
+        .deserialize(std::fs::File::open(filename)?)
+        .to_tuple();
 
     // Print the contents
     for s in dirs {

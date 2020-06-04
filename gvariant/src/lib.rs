@@ -63,6 +63,7 @@
 //!
 //! * our errors to implement [`std::error::Error`]
 //! * `Str`'s `to_cstr()` method
+//! * [`Marker::deserialize`]
 //! * [`aligned_bytes::read_to_slice`]
 //!
 //! Disable this feature for no-std support.
@@ -238,6 +239,16 @@ pub trait Marker {
 
     /// Cast `data` to the appropriate rust type `Self::Type` for the type
     /// string `Self::TYPESTR`.
+    ///
+    /// Use this in preference to `deserialize` if you already have the data in
+    /// (properly aligned) memory.  This makes no allocations and has no
+    /// dependency on `std` or `alloc`.
+    ///
+    /// Example
+    ///
+    ///     # use gvariant::{gv, Marker, Structure};
+    ///     # let aligned_data = gvariant::aligned_bytes::empty_aligned();
+    ///     let (my_int, my_str) = gv!("(ias)").cast(aligned_data).to_tuple();
     fn cast<'a>(&self, data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
         Self::Type::from_aligned_slice(data)
     }
@@ -248,6 +259,29 @@ pub trait Marker {
         data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
     ) -> Result<&'a mut Self::Type, casting::WrongSize> {
         Self::Type::try_from_aligned_slice_mut(data)
+    }
+
+    /// Read the data from r returning an owned deserialised GVariant object
+    ///
+    /// Example
+    ///
+    ///     # use gvariant::{gv, Marker};
+    ///     # fn moo(myfile: &str) -> std::io::Result<()> {
+    ///     # let myfile = "";
+    ///     let v = gv!("s").deserialize(std::fs::File::open(myfile)?)?;
+    ///     assert_eq!(&*v, "An example string");
+    ///     # Ok(())
+    ///     # }
+    ///
+    /// This requires the features std and alloc be enabled on the gvariant
+    /// crate.
+    #[cfg(feature = "std")]
+    fn deserialize(
+        &self,
+        r: impl std::io::Read,
+    ) -> std::io::Result<<Self::Type as ToOwned>::Owned> {
+        let data = aligned_bytes::read_to_slice(r, None)?;
+        Ok(self.cast(&*data).to_owned())
     }
 
     /// Deserialise the given `data`, making a copy in the process.
