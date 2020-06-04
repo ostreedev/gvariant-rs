@@ -196,6 +196,7 @@ use alloc::{borrow::ToOwned, string::String};
 use core::{
     convert::TryInto,
     fmt::{Debug, Display},
+    hash::Hash,
     marker::PhantomData,
 };
 
@@ -587,6 +588,16 @@ impl PartialEq<[u8]> for Str {
 impl PartialEq<Str> for [u8] {
     fn eq(&self, other: &Str) -> bool {
         self == other.to_bytes()
+    }
+}
+impl PartialEq<Str> for str {
+    fn eq(&self, other: &Str) -> bool {
+        self.as_bytes() == other.to_bytes()
+    }
+}
+impl PartialEq<str> for Str {
+    fn eq(&self, other: &str) -> bool {
+        self.to_bytes() == other.as_bytes()
     }
 }
 impl Display for Str {
@@ -997,6 +1008,24 @@ pub struct NonFixedWidthArrayIterator<'a, Item: Cast + ?Sized> {
     offset_idx: usize,
     offset_size: OffsetSize,
 }
+impl<Item: Cast + ?Sized + PartialEq<T>, T: ?Sized> PartialEq<[&T]> for NonFixedWidthArray<Item> {
+    fn eq(&self, other: &[&T]) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        for (a, b) in self.iter().zip(other.iter()) {
+            if a != *b {
+                return false;
+            }
+        }
+        true
+    }
+}
+impl<Item: Cast + ?Sized + PartialEq<T>, T: ?Sized> PartialEq<NonFixedWidthArray<Item>> for [&T] {
+    fn eq(&self, other: &NonFixedWidthArray<Item>) -> bool {
+        other == self
+    }
+}
 impl<'a, Item: Cast + 'static + ?Sized> Iterator for NonFixedWidthArrayIterator<'a, Item> {
     type Item = &'a Item;
     fn next(&mut self) -> Option<Self::Item> {
@@ -1166,6 +1195,16 @@ impl<T: Cast + PartialEq> PartialEq<&MaybeFixedSize<T>> for Option<&T> {
         other == self
     }
 }
+impl<T: Cast + PartialOrd> PartialOrd for MaybeFixedSize<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.to_option().partial_cmp(&other.to_option())
+    }
+}
+impl<T: Cast + Hash> Hash for MaybeFixedSize<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.to_option().hash(state)
+    }
+}
 
 unsafe impl<T: Cast> AlignOf for MaybeFixedSize<T> {
     type AlignOf = T::AlignOf;
@@ -1328,6 +1367,16 @@ impl From<Bool> for bool {
 impl PartialEq for Bool {
     fn eq(&self, other: &Self) -> bool {
         self.to_bool() == other.to_bool()
+    }
+}
+impl PartialEq<bool> for Bool {
+    fn eq(&self, other: &bool) -> bool {
+        self.to_bool() == *other
+    }
+}
+impl PartialEq<Bool> for bool {
+    fn eq(&self, other: &Bool) -> bool {
+        other == self
     }
 }
 
@@ -1615,13 +1664,9 @@ mod tests {
         // String Array Example
         //
         // With type 'as':
-        let v: Vec<_> = NonFixedWidthArray::<Str>::from_aligned_slice(
-            b"i\0can\0has\0strings?\0\x02\x06\x0a\x13".as_aligned(),
-        )
-        .into_iter()
-        .map(|x| x.to_bytes())
-        .collect();
-        assert_eq!(v, [b"i".as_ref(), b"can", b"has", b"strings?"]);
+        let a = gv!("as").from_bytes(b"i\0can\0has\0strings?\0\x02\x06\x0a\x13");
+        assert_array_self_consistent(&*a);
+        assert_eq!(*a, ["i", "can", "has", "strings?"][..]);
 
         // Array of Bytes Example
         //
