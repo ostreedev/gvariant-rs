@@ -1,15 +1,10 @@
-use gvariant::{gv, Marker, Structure};
+use gvariant::{aligned_bytes::read_to_slice, gv, Marker, Structure};
 use hex;
 use std::error::Error;
-use std::io::Read;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    // Allocate an aligned buffer for the data:
-    let mut buf =
-        gvariant::aligned_bytes::alloc_aligned(std::fs::metadata(filename)?.len() as usize);
-
     // Read the data into the buffer
-    std::fs::File::open(filename)?.read_exact(&mut buf)?;
+    let buf = read_to_slice(std::fs::File::open(filename)?, None)?;
 
     // Interpret as a tree
     let (files, dirs) = gv!("(a(say)a(sayay))").cast(&buf).to_tuple();

@@ -63,6 +63,7 @@
 //!
 //! * our errors to implement [`std::error::Error`]
 //! * `Str`'s `to_cstr()` method
+//! * [`aligned_bytes::read_to_slice`]
 //!
 //! Disable this feature for no-std support.
 //!
@@ -253,9 +254,9 @@ pub trait Marker {
     /// This is a convenience API wrapper around `copy_to_align` and `cast`
     /// allowing users to not have to think about the alignment of their data.
     /// It is usually better to ensure the data you have is aligned, for example
-    /// using `alloc_aligned`, and then use `cast` directly.  This way you can
-    /// avoid additional allocations, avoid additional copying, avoid having to
-    /// deal with `Cow` types and work in noalloc contexts.
+    /// using `alloc_aligned` or `read_to_slice`, and then use `cast` directly.
+    /// This way you can avoid additional allocations, avoid additional copying,
+    /// avoid having to deal with `Cow` types and work in noalloc contexts.
     ///
     /// Example
     ///
