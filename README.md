@@ -6,8 +6,8 @@ fast reading of in-memory buffers.
 
 ```rust
     let data = b"It works!\0";
-    let string = gv!("s")::from_aligned_bytes(data.as_aligned).to_bytes();
-    assert_eq!(string, b"It works!");
+    let string = gv!("s").from_bytes("It works!\0");
+    assert_eq!(string, "It works!");
 ```
 
 ### Documentation

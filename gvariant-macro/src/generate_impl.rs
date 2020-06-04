@@ -86,6 +86,20 @@ fn write_non_fixed_size_structure(
     pub(crate) struct Structure{spec} {{
         data: AlignedSlice<aligned_bytes::A{alignment}>,
     }}
+    impl Structure{spec} {{
+        fn from_aligned_slice_mut(slice: &mut AlignedSlice<<Self as AlignOf>::AlignOf>) -> &mut Self {{
+            // This is safe because Structure{spec} is repr(transparent) around
+            // this same type:
+            unsafe {{&mut *(slice as *mut AlignedSlice<aligned_bytes::A{alignment}> as *mut Structure{spec})}}
+        }}
+    }}
+    impl ToOwned for Structure{spec} {{
+        type Owned = Box<Self>;
+        fn to_owned(&self) -> Self::Owned {{
+            let cp = self.data.to_owned();
+            unsafe {{ Box::from_raw(Self::from_aligned_slice_mut(Box::leak(cp)) as *mut Self) }}
+        }}
+    }}
     impl ::gvariant::Cast for Structure{spec} {{
         fn default_ref() -> &'static Self {{
             let d = empty_aligned();
@@ -101,7 +115,7 @@ fn write_non_fixed_size_structure(
         fn try_from_aligned_slice_mut(slice:&mut AlignedSlice<Self::AlignOf>) -> Result<&mut Self, ::gvariant::casting::WrongSize> {{
             // This is safe because Structure{spec} is repr(transparent) around
             // this same type:
-            Ok(unsafe {{&mut *(slice as *mut AlignedSlice<aligned_bytes::A{alignment}> as *mut Structure{spec})}})
+            Ok(Self::from_aligned_slice_mut(slice))
         }}
     }}
     unsafe impl ::gvariant::casting::AllBitPatternsValid for Structure{spec} {{}}

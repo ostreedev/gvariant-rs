@@ -25,6 +25,7 @@ use std::error::Error;
 
 use crate::aligned_bytes;
 use crate::aligned_bytes::{is_aligned, AlignedSlice};
+use ref_cast::RefCast;
 
 /// If a type implements this trait it's a promise that all representations of
 /// underlying memory are valid for this type.  That means any struct must be
@@ -86,6 +87,11 @@ pub(crate) fn cast_slice<'a, A: aligned_bytes::Alignment, T: AllBitPatternsValid
     } else {
         Err(WrongSize {})
     }
+}
+
+pub(crate) fn ref_cast_box<'a, T: RefCast + ?Sized>(a: Box<T::From>) -> Box<T> {
+    // We lean on RefCast to make this safe
+    unsafe { Box::from_raw(T::ref_cast_mut(Box::leak(a)) as *mut T) }
 }
 
 /// Safely cast an `&AlignedSlice` to `&T` where `T: Sized`
