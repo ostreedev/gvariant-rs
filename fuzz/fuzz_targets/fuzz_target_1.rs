@@ -7,31 +7,40 @@ use gvariant::{
 };
 use libfuzzer_sys::fuzz_target;
 use std::ffi::CStr;
-
-struct GLibVariant {
-    bytes: *mut glib_sys::GBytes,
-    variant_type: *mut glib_sys::GVariantType,
-    variant: *mut glib_sys::GVariant,
+struct GLibVariantType {
+    ptr: *mut glib_sys::GVariantType,
 }
-
-impl GLibVariant {
-    fn new(data: &[u8], ty: &str) -> GLibVariant {
-        unsafe {
-            let bytes = glib_sys::g_bytes_new(data.as_ptr() as *const std::ffi::c_void, data.len());
-            let gvtype = glib_sys::g_variant_type_new(ty.as_ptr() as *const i8);
-            let glib_variant = glib_sys::g_variant_new_from_bytes(gvtype, bytes, 0);
-            GLibVariant {
-                bytes: bytes,
-                variant_type: gvtype,
-                variant: glib_variant,
-            }
+impl GLibVariantType {
+    fn new(ty: &str) -> GLibVariantType {
+        let cs = CString::new(ty).unwrap();
+        GLibVariantType {
+            ptr: unsafe { glib_sys::g_variant_type_new(cs.as_ptr()) },
         }
     }
-    unsafe fn new_from_gvariant(variant: *mut glib_sys::GVariant) -> GLibVariant {
-        GLibVariant {
-            bytes: 0 as *mut glib_sys::GBytes,
-            variant_type: 0 as *mut glib_sys::GVariantType,
-            variant: variant,
+}
+impl Drop for GLibVariantType {
+    fn drop(&mut self) {
+        unsafe { glib_sys::g_variant_type_free(self.ptr) };
+    }
+}
+
+struct GLibVariant {
+    variant: *mut glib_sys::GVariant,
+}
+impl GLibVariant {
+    fn new(data: &[u8], ty: &GLibVariantType) -> GLibVariant {
+        unsafe {
+            let bytes = glib_sys::g_bytes_new(data.as_ptr() as *const std::ffi::c_void, data.len());
+            let out = Self::new_from_gvariant(glib_sys::g_variant_new_from_bytes(ty.ptr, bytes, 0));
+            glib_sys::g_bytes_unref(bytes);
+            out.unwrap()
+        }
+    }
+    unsafe fn new_from_gvariant(variant: *mut glib_sys::GVariant) -> Option<GLibVariant> {
+        if variant.is_null() {
+            None
+        } else {
+            Some(GLibVariant { variant: variant })
         }
     }
     unsafe fn get_data(&self) -> &[u8] {
@@ -50,15 +59,7 @@ impl GLibVariant {
 impl Drop for GLibVariant {
     fn drop(&mut self) {
         unsafe {
-            if !self.variant.is_null() {
-                glib_sys::g_variant_unref(self.variant);
-            }
-            if !self.variant_type.is_null() {
-                glib_sys::g_variant_type_free(self.variant_type);
-            }
-            if !self.bytes.is_null() {
-                glib_sys::g_bytes_unref(self.bytes);
-            }
+            glib_sys::g_variant_unref(self.variant);
         }
     }
 }
@@ -158,6 +159,7 @@ where
         for (n, elem) in self.iter().enumerate() {
             let child = unsafe {
                 GLibVariant::new_from_gvariant(glib_sys::g_variant_get_child_value(rhs.variant, n))
+                    .unwrap()
             };
             if *elem != child {
                 return false;
@@ -182,14 +184,10 @@ where
         let g =
             unsafe { GLibVariant::new_from_gvariant(glib_sys::g_variant_get_maybe(rhs.variant)) };
         let o = self.to_option();
-        if let Some(val) = o {
-            if g.variant.is_null() {
-                false
-            } else {
-                *val == g
-            }
-        } else {
-            g.variant.is_null()
+        match (g, o) {
+            (Some(g), Some(o)) => *o == g,
+            (None, None) => true,
+            _ => false,
         }
     }
 }
@@ -202,22 +200,19 @@ where
         let g =
             unsafe { GLibVariant::new_from_gvariant(glib_sys::g_variant_get_maybe(rhs.variant)) };
         let o = self.to_option();
-        if let Some(val) = o {
-            if g.variant.is_null() {
-                false
-            } else {
-                *val == g
-            }
-        } else {
-            g.variant.is_null()
+        match (g, o) {
+            (Some(g), Some(o)) => *o == g,
+            (None, None) => true,
+            _ => false,
         }
     }
 }
 
 impl PartialEq<GLibVariant> for Variant {
     fn eq(&self, rhs: &GLibVariant) -> bool {
-        let g =
-            unsafe { GLibVariant::new_from_gvariant(glib_sys::g_variant_get_variant(rhs.variant)) };
+        let g = unsafe {
+            GLibVariant::new_from_gvariant(glib_sys::g_variant_get_variant(rhs.variant)).unwrap()
+        };
         let g_ty = unsafe { CStr::from_ptr(glib_sys::g_variant_get_type_string(g.variant)) };
         let (ty, data) = self.split();
         ty == g_ty.to_bytes() && data.as_ref() as &[u8] == unsafe { g.get_data() }
