@@ -1419,6 +1419,14 @@ impl<T: Cast> Cast for MaybeFixedSize<T> {
     }
 }
 
+impl<'a, T: Cast> IntoIterator for &'a MaybeFixedSize<T> {
+    type Item = &'a T;
+    type IntoIter = core::option::IntoIter<&'a T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_option().into_iter()
+    }
+}
+
 impl<'a, GvT: Cast + SerializeTo<GvT>> SerializeTo<MaybeFixedSize<GvT>> for &'a MaybeFixedSize<GvT>
 where
     &'a GvT: SerializeTo<GvT>,
@@ -1525,6 +1533,14 @@ impl<T: Cast + ?Sized> Cast for MaybeNonFixedSize<T> {
         slice: &mut AlignedSlice<Self::AlignOf>,
     ) -> Result<&mut Self, casting::WrongSize> {
         Ok(Self::ref_cast_mut(slice))
+    }
+}
+
+impl<'a, T: Cast + ?Sized> IntoIterator for &'a MaybeNonFixedSize<T> {
+    type Item = &'a T;
+    type IntoIter = core::option::IntoIter<&'a T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_option().into_iter()
     }
 }
 
