@@ -202,7 +202,10 @@ use core::{
 };
 
 #[cfg(feature = "std")]
-use std::{ffi::CStr, io::Write};
+use std::{
+    ffi::{CStr, CString},
+    io::Write,
+};
 
 use ref_cast::RefCast;
 
@@ -322,10 +325,10 @@ pub trait Marker {
     #[cfg(feature = "std")]
     fn serialize(
         &self,
-        data: &impl SerializeTo<Self::Type>,
+        data: impl SerializeTo<Self::Type>,
         out: &mut impl Write,
     ) -> std::io::Result<usize> {
-        (*data).serialize(out)
+        data.serialize(out)
     }
 
     /// Convenience method for in-memory serialization
@@ -333,7 +336,7 @@ pub trait Marker {
     /// Used by our tests.  You probably want to use the more flexible
     /// `serialize` instead which can be used to write to files/sockets.
     #[cfg(feature = "std")]
-    fn serialize_to_vec(&self, data: &impl SerializeTo<Self::Type>) -> Vec<u8> {
+    fn serialize_to_vec(&self, data: impl SerializeTo<Self::Type>) -> Vec<u8> {
         let mut out = vec![];
         self.serialize(data, &mut out)
             .expect("Serialization to Vec should be infallible");
@@ -353,7 +356,7 @@ pub trait Marker {
 /// `SerializeTo<>` is implemented for appropriate built-in types, and you may
 /// wish to implement it for your own types as well.
 pub trait SerializeTo<T: Cast + ?Sized> {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize>;
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize>;
 }
 
 /// Maps from GVariant typestrs to compatible Rust types returning a `Marker`.
@@ -499,13 +502,13 @@ macro_rules! impl_cast_for {
             }
         }
         impl SerializeTo<$t> for $t {
-            fn serialize(&self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
+            fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
                 f.write_all(self.to_ne_bytes().as_ref())?;
                 Ok(std::mem::size_of::<$t>())
             }
         }
         impl SerializeTo<$t> for &$t {
-            fn serialize(&self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
+            fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
                 (*self).serialize(f)
             }
         }
@@ -635,46 +638,59 @@ impl Cast for Str {
     }
 }
 impl SerializeTo<Str> for &Str {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        (*self).serialize(f)
-    }
-}
-impl SerializeTo<Str> for &str {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        (*self).serialize(f)
-    }
-}
-impl SerializeTo<Str> for &[u8] {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        (*self).serialize(f)
-    }
-}
-impl SerializeTo<Str> for &CStr {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        (*self).serialize(f)
-    }
-}
-impl SerializeTo<Str> for Str {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         self.to_cstr().serialize(f)
     }
 }
-impl SerializeTo<Str> for str {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+impl SerializeTo<Str> for &str {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         f.write_all(self.as_bytes())?;
         f.write_all(b"\0")?;
         Ok(self.len() + 1)
     }
 }
-impl SerializeTo<Str> for [u8] {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+impl SerializeTo<Str> for &[u8] {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         f.write_all(self)?;
         f.write_all(b"\0")?;
         Ok(self.len() + 1)
     }
 }
-impl SerializeTo<Str> for CStr {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+impl<T: SerializeTo<Str> + Copy> SerializeTo<Str> for &T {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        (*self).serialize(f)
+    }
+}
+impl SerializeTo<Str> for &CStr {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        let b = self.to_bytes_with_nul();
+        f.write_all(b)?;
+        Ok(b.len())
+    }
+}
+impl SerializeTo<Str> for &Box<Str> {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        self.to_cstr().serialize(f)
+    }
+}
+impl SerializeTo<Str> for &String {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        f.write_all(self.as_bytes())?;
+        f.write_all(b"\0")?;
+        Ok(self.len() + 1)
+    }
+}
+#[cfg(feature = "alloc")]
+impl SerializeTo<Str> for &Vec<u8> {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        f.write_all(self)?;
+        f.write_all(b"\0")?;
+        Ok(self.len() + 1)
+    }
+}
+#[cfg(feature = "std")]
+impl SerializeTo<Str> for &CString {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         let b = self.to_bytes_with_nul();
         f.write_all(b)?;
         Ok(b.len())
@@ -795,8 +811,8 @@ impl Cast for Variant {
         Ok(Self::ref_cast_mut(slice))
     }
 }
-impl SerializeTo<Variant> for Variant {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+impl SerializeTo<Variant> for &Variant {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         // Our ability to normalise variants is limited because we only deal
         // with typestrs at compile time and this could be anything.
         let (typestr, data) = self.split();
@@ -919,11 +935,11 @@ impl<'a, T: Cast + 'static + Copy> Cast for [T] {
     }
 }
 
-impl<GvT: Cast + Copy, It: IntoIterator + Copy> SerializeTo<[GvT]> for It
+impl<GvT: Cast + Copy, It: IntoIterator> SerializeTo<[GvT]> for It
 where
     It::Item: SerializeTo<GvT>,
 {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         let mut bytes_written = 0;
         for x in self.into_iter() {
             bytes_written += x.serialize(f)?;
@@ -1225,13 +1241,12 @@ impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArr
         }
     }
 }
-impl<'a, GvT: Cast + ?Sized, It: 'a + ?Sized> SerializeTo<NonFixedWidthArray<GvT>> for &'a It
+
+impl<GvT: Cast + ?Sized, It: IntoIterator> SerializeTo<NonFixedWidthArray<GvT>> for It
 where
-    <&'a It as IntoIterator>::Item: Deref + 'a,
-    <<&'a It as IntoIterator>::Item as Deref>::Target: SerializeTo<GvT>,
-    &'a It: IntoIterator,
+    It::Item: SerializeTo<GvT>,
 {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         let mut bytes_written = 0;
         let mut offsets = vec![];
         for x in self.into_iter() {
@@ -1404,6 +1419,34 @@ impl<T: Cast> Cast for MaybeFixedSize<T> {
     }
 }
 
+impl<'a, GvT: Cast + SerializeTo<GvT>> SerializeTo<MaybeFixedSize<GvT>> for &'a MaybeFixedSize<GvT>
+where
+    &'a GvT: SerializeTo<GvT>,
+{
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        if let Some(x) = self.to_option() {
+            x.serialize(f)
+        } else {
+            Ok(0)
+        }
+    }
+}
+
+impl<GvT: Cast, T: SerializeTo<GvT> + Copy> SerializeTo<MaybeFixedSize<GvT>> for &Option<T>
+where
+    T: SerializeTo<GvT>,
+{
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        if let Some(x) = self {
+            let len = x.serialize(f)?;
+            f.write_all(b"\0")?;
+            Ok(len + 1)
+        } else {
+            Ok(0)
+        }
+    }
+}
+
 /// Type with same representation as GVariant "mX" type where X is any non-fixed
 /// size type
 ///
@@ -1508,25 +1551,12 @@ impl<T: Cast + PartialEq> PartialEq<MaybeNonFixedSize<T>> for Option<&T> {
     }
 }
 
-impl<GvT: Cast + SerializeTo<GvT> + ?Sized> SerializeTo<MaybeNonFixedSize<GvT>>
-    for MaybeNonFixedSize<GvT>
+impl<GvT: Cast + ?Sized, T: IntoIterator> SerializeTo<MaybeNonFixedSize<GvT>> for T
+where
+    T::Item: SerializeTo<GvT>,
 {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        if let Some(x) = self.to_option() {
-            let len = x.serialize(f)?;
-            f.write_all(b"\0")?;
-            Ok(len + 1)
-        } else {
-            Ok(0)
-        }
-    }
-}
-
-impl<GvT: Cast + ?Sized, T: SerializeTo<GvT> + ?Sized> SerializeTo<MaybeNonFixedSize<GvT>>
-    for Option<&T>
-{
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        if let Some(x) = self {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        if let Some(x) = self.into_iter().next() {
             let len = x.serialize(f)?;
             f.write_all(b"\0")?;
             Ok(len + 1)
@@ -1599,21 +1629,16 @@ impl PartialEq<Bool> for bool {
         other == self
     }
 }
-impl SerializeTo<Bool> for Bool {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+impl SerializeTo<Bool> for &Bool {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         self.to_bool().serialize(f)
     }
 }
 
-impl SerializeTo<Bool> for bool {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
+impl SerializeTo<Bool> for &bool {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         f.write_all(if *self { b"\x01" } else { b"\x00" })?;
         Ok(1)
-    }
-}
-impl SerializeTo<Bool> for &bool {
-    fn serialize(&self, f: &mut impl Write) -> std::io::Result<usize> {
-        (*self).serialize(f)
     }
 }
 
@@ -1885,7 +1910,7 @@ mod tests {
     #[test]
     fn test_spec_examples() {
         assert_eq!(&*gv!("s").from_bytes(b"hello world\0"), "hello world");
-        assert_eq!(gv!("s").serialize_to_vec(&"hello world"), b"hello world\0");
+        assert_eq!(gv!("s").serialize_to_vec("hello world"), b"hello world\0");
 
         assert_eq!(
             gv!("ms")
@@ -1895,7 +1920,7 @@ mod tests {
             "hello world"
         );
         assert_eq!(
-            gv!("ms").serialize_to_vec(&Some(&"hello world")),
+            gv!("ms").serialize_to_vec(&Some("hello world")),
             b"hello world\0\0"
         );
 
@@ -1904,7 +1929,7 @@ mod tests {
             [true, false, false, true, true]
         );
         assert_eq!(
-            gv!("ab").serialize_to_vec(&&[true, false, false, true, true][..]),
+            gv!("ab").serialize_to_vec(&[true, false, false, true, true][..]),
             b"\x01\x00\x00\x01\x01"
         );
 
@@ -1916,7 +1941,7 @@ mod tests {
         assert_eq!(*a, ["i", "can", "has", "strings?"][..]);
         assert_eq!(
             gv!("as")
-                .serialize_to_vec(&&["i", "can", "has", "strings?"][..])
+                .serialize_to_vec(&["i", "can", "has", "strings?"][..])
                 .as_slice(),
             b"i\0can\0has\0strings?\0\x02\x06\x0a\x13"
         );
@@ -1928,7 +1953,7 @@ mod tests {
         assert_eq!(aob, &[0x04u8, 0x05, 0x06, 0x07]);
         assert_eq!(
             gv!("ay")
-                .serialize_to_vec(&&[0x04u8, 0x05, 0x06, 0x07])
+                .serialize_to_vec(&[0x04u8, 0x05, 0x06, 0x07])
                 .as_slice(),
             &[0x04u8, 0x05, 0x06, 0x07]
         );
@@ -1938,7 +1963,7 @@ mod tests {
         // With type 'ai':
         assert_eq!(gv!("ai").from_bytes(b"\x04\0\0\0\x02\x01\0\0"), [4, 258]);
         assert_eq!(
-            gv!("ai").serialize_to_vec(&&[4, 258]).as_slice(),
+            gv!("ai").serialize_to_vec(&[4, 258]).as_slice(),
             b"\x04\0\0\0\x02\x01\0\0"
         );
 
