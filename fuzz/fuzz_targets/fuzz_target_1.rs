@@ -2,11 +2,16 @@
 
 use glib_sys;
 use gvariant::{
-    aligned_bytes::copy_to_align, gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize,
-    NonFixedWidthArray, Str, Variant,
+    aligned_bytes::{copy_to_align, AsAligned, A8},
+    casting::AlignOf,
+    gv, Bool, Cast, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray, Str, Variant,
 };
 use libfuzzer_sys::fuzz_target;
-use std::ffi::CStr;
+use std::{
+    ffi::{CStr, CString},
+    fmt::Debug,
+};
+
 struct GLibVariantType {
     ptr: *mut glib_sys::GVariantType,
 }
@@ -219,43 +224,49 @@ impl PartialEq<GLibVariant> for Variant {
     }
 }
 
-macro_rules! test_cmp {
-    ($ty:literal, $data:expr) => {
-        let gv = GLibVariant::new($data, concat!($ty, "\0"));
-        let data = copy_to_align($data);
-        let v = gv!($ty).cast(data.as_ref());
-        //println!("{:?} == {:?}", gv, v);
-        if gv.is_normal_form() {
-            assert_eq!(*v, gv);
-        } else {
-            // Just do some consistency checks:
-            #[allow(unused_must_use)]
-            {
-                *v == gv;
-            }
+fn test_cmp<'data, T: gvariant::Marker>(
+    m: T,
+    data: &'data gvariant::aligned_bytes::AlignedSlice<<T::Type as AlignOf>::AlignOf>,
+) where
+    T::Type: PartialEq<GLibVariant> + Debug + 'data,
+{
+    let gvt = GLibVariantType::new(&std::str::from_utf8(T::TYPESTR).unwrap());
+    let gv = GLibVariant::new(data, &gvt);
+    let v = m.cast(data);
+
+    //println!("{}: {:?} == {:?}", &std::str::from_utf8(T::TYPESTR).unwrap(), gv, v);
+    if gv.is_normal_form() {
+        assert_eq!(*v, gv);
+    } else {
+        // Just do some consistency checks:
+        #[allow(unused_must_use)]
+        {
+            *v == gv;
         }
-    };
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
-    test_cmp!("b", data);
-    test_cmp!("y", data);
-    test_cmp!("n", data);
-    test_cmp!("q", data);
-    test_cmp!("i", data);
-    test_cmp!("u", data);
-    test_cmp!("x", data);
-    test_cmp!("t", data);
-    test_cmp!("d", data);
-    test_cmp!("s", data);
-    test_cmp!("o", data);
-    test_cmp!("g", data);
-    test_cmp!("v", data);
-    test_cmp!("ay", data);
-    test_cmp!("ai", data);
-    test_cmp!("as", data);
-    test_cmp!("aay", data);
-    test_cmp!("my", data);
-    test_cmp!("mi", data);
-    test_cmp!("ms", data);
+    let data_cow = copy_to_align::<A8>(data);
+    let data = data_cow.as_ref();
+    test_cmp(gv!("b"), data.as_aligned());
+    test_cmp(gv!("y"), data.as_aligned());
+    test_cmp(gv!("n"), data.as_aligned());
+    test_cmp(gv!("q"), data.as_aligned());
+    test_cmp(gv!("i"), data.as_aligned());
+    test_cmp(gv!("u"), data.as_aligned());
+    test_cmp(gv!("x"), data.as_aligned());
+    test_cmp(gv!("t"), data.as_aligned());
+    test_cmp(gv!("d"), data.as_aligned());
+    test_cmp(gv!("s"), data.as_aligned());
+    test_cmp(gv!("o"), data.as_aligned());
+    test_cmp(gv!("g"), data.as_aligned());
+    test_cmp(gv!("v"), data.as_aligned());
+    test_cmp(gv!("ay"), data.as_aligned());
+    test_cmp(gv!("ai"), data.as_aligned());
+    test_cmp(gv!("as"), data.as_aligned());
+    test_cmp(gv!("aay"), data.as_aligned());
+    test_cmp(gv!("my"), data.as_aligned());
+    test_cmp(gv!("mi"), data.as_aligned());
+    test_cmp(gv!("ms"), data.as_aligned());
 });
