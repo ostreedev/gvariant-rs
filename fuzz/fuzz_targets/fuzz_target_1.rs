@@ -4,7 +4,8 @@ use glib_sys;
 use gvariant::{
     aligned_bytes::{copy_to_align, AsAligned, A8},
     casting::AlignOf,
-    gv, Bool, Cast, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray, Str, Variant,
+    gv, Bool, Cast, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray, SerializeTo, Str,
+    Variant,
 };
 use libfuzzer_sys::fuzz_target;
 use std::{
@@ -66,6 +67,17 @@ impl Drop for GLibVariant {
         unsafe {
             glib_sys::g_variant_unref(self.variant);
         }
+    }
+}
+
+impl PartialEq for GLibVariant {
+    fn eq(&self, other: &Self) -> bool {
+        (unsafe {
+            glib_sys::g_variant_equal(
+                self.variant as *const std::ffi::c_void,
+                other.variant as *const std::ffi::c_void,
+            )
+        }) != 0
     }
 }
 
@@ -229,14 +241,33 @@ fn test_cmp<'data, T: gvariant::Marker>(
     data: &'data gvariant::aligned_bytes::AlignedSlice<<T::Type as AlignOf>::AlignOf>,
 ) where
     T::Type: PartialEq<GLibVariant> + Debug + 'data,
+    &'data T::Type: SerializeTo<T::Type>,
 {
     let gvt = GLibVariantType::new(&std::str::from_utf8(T::TYPESTR).unwrap());
     let gv = GLibVariant::new(data, &gvt);
     let v = m.cast(data);
 
+    let mut reserialized = vec![];
+    m.serialize(v, &mut reserialized).unwrap();
+    let rs = copy_to_align(&reserialized);
+
+    // Round-tripping serialization should give the same result:
+    // println!("{:?} {:?}", reserialized.as_slice(), data.as_ref());
+    assert_eq!(m.cast(rs.as_ref()), v);
+
     //println!("{}: {:?} == {:?}", &std::str::from_utf8(T::TYPESTR).unwrap(), gv, v);
     if gv.is_normal_form() {
         assert_eq!(*v, gv);
+
+        if data.len() >= 256 && data.len() < 512 && T::TYPESTR == b"aay" {
+            // In theory there is exactly 1 normal form for data, but
+            // `g_variant_is_normal_form` is buggy, so we can't do the check
+            // from the else clause.  This performs a weaker version of that
+            // check instead:
+            assert!(GLibVariant::new(&reserialized, &gvt).is_normal_form());
+        } else {
+            assert_eq!(reserialized.as_slice(), data.as_ref());
+        }
     } else {
         // Just do some consistency checks:
         #[allow(unused_must_use)]
@@ -269,4 +300,5 @@ fuzz_target!(|data: &[u8]| {
     test_cmp(gv!("my"), data.as_aligned());
     test_cmp(gv!("mi"), data.as_aligned());
     test_cmp(gv!("ms"), data.as_aligned());
+    test_cmp(gv!("may"), data.as_aligned());
 });
