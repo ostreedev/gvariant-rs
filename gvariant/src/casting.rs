@@ -89,7 +89,7 @@ pub(crate) fn cast_slice<'a, A: aligned_bytes::Alignment, T: AllBitPatternsValid
     }
 }
 
-pub(crate) fn ref_cast_box<'a, T: RefCast + ?Sized>(a: Box<T::From>) -> Box<T> {
+pub(crate) fn ref_cast_box<T: RefCast + ?Sized>(a: Box<T::From>) -> Box<T> {
     // We lean on RefCast to make this safe
     unsafe { Box::from_raw(T::ref_cast_mut(Box::leak(a)) as *mut T) }
 }

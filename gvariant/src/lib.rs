@@ -304,7 +304,7 @@ pub trait Marker {
     ///     let v = gv!("s").from_bytes(b"An example string\0");
     ///     assert_eq!(&*v, "An example string");
     #[cfg(feature = "alloc")]
-    fn from_bytes<'a>(&self, data: impl AsRef<[u8]>) -> <Self::Type as ToOwned>::Owned {
+    fn from_bytes(&self, data: impl AsRef<[u8]>) -> <Self::Type as ToOwned>::Owned {
         let cow = aligned_bytes::copy_to_align(data.as_ref());
         self.cast(cow.as_ref()).to_owned()
     }
@@ -1253,7 +1253,7 @@ where
             bytes_written += x.serialize(f)?;
             offsets.push(bytes_written);
             let padding = align_offset::<GvT::AlignOf>(bytes_written).to_usize() - bytes_written;
-            f.write(&b"\0\0\0\0\0\0\0"[..padding])?;
+            f.write_all(&b"\0\0\0\0\0\0\0"[..padding])?;
             bytes_written += padding;
         }
         write_offsets(bytes_written, offsets.as_ref(), f)
@@ -1581,7 +1581,7 @@ where
 #[repr(transparent)]
 pub struct Bool(u8);
 impl Bool {
-    pub fn to_bool(&self) -> bool {
+    pub fn to_bool(self) -> bool {
         self.0 > 0
     }
 }
