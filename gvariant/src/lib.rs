@@ -885,7 +885,7 @@ impl PartialEq for Variant {
     /// Caveat: The current implementation has false negatives for data not in
     /// "normal form".  This may change in the future.
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_ref() as &[u8] == other.0.as_ref() as &[u8]
+        self.split() == other.split()
     }
 }
 
@@ -1970,5 +1970,16 @@ mod tests {
             (b"n", d) => assert_eq!(*i16::from_aligned_slice(d.as_aligned()), 4),
             (ty, _) => panic!("Incorrect type {:?}", ty),
         }
+        assert_eq!(v, v);
+
+        let data_1 = copy_to_align(b"\x00()");
+        let data_2 = copy_to_align(b"");
+        assert_eq!(
+            Variant::from_aligned_slice(data_1.as_ref()),
+            Variant::from_aligned_slice(data_2.as_ref())
+        );
+
+        let non_normal = Variant::from_aligned_slice(data_1.as_ref());
+        assert_ne!(non_normal, v);
     }
 }
