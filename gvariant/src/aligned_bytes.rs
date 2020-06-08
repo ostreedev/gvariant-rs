@@ -215,10 +215,16 @@ pub trait TryAsAlignedMut<A: Alignment>: TryAsAligned<A> {
 /// The aligment requirement is specfied by the type parameter A.  It will be
 /// [`A1`], [`A2`], [`A4`] or [`A8`].
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Eq)]
 pub struct AlignedSlice<A: Alignment> {
     alignment: A,
     data: [u8],
+}
+
+impl<A: Alignment> PartialEq for AlignedSlice<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+    }
 }
 
 #[cfg(feature = "alloc")]
