@@ -230,7 +230,7 @@ pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type};
 /// marker structs that implement this.  Use that instead.
 ///
 /// See the documentation of `gv!` for usage examples.
-pub trait Marker {
+pub trait Marker: Copy {
     /// The typestr that was passed to the `gv!` macro.
     const TYPESTR: &'static [u8];
 
@@ -421,6 +421,7 @@ macro_rules! gv {
             use $crate::*;
 
             _define_gv!($typestr);
+            #[derive(Copy, Clone)]
             pub(crate) struct Marker();
             impl $crate::Marker for Marker {
                 type Type = _gv_type!($typestr);
