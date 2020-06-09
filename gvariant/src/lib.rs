@@ -1754,7 +1754,6 @@ where
 }
 
 #[cfg(test)]
-#[cfg(feature = "alloc")]
 mod tests {
     use super::*;
     use aligned_bytes::{copy_to_align, AlignedSlice, AsAligned, A8};
