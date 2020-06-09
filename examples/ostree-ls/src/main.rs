@@ -1,12 +1,11 @@
-use gvariant::{aligned_bytes::read_to_slice, gv, Marker, Structure};
+use gvariant::{gv, Marker, Structure};
 use hex;
 use std::error::Error;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
     // Read the data into the buffer and Interpret as an OSTree tree
-    let (files, dirs) = gv!("(a(say)a(sayay))")
-        .deserialize(std::fs::File::open(filename)?)
-        .to_tuple();
+    let tree = gv!("(a(say)a(sayay))").deserialize(std::fs::File::open(filename)?)?;
+    let (files, dirs) = tree.to_tuple();
 
     // Print the contents
     for s in dirs {
