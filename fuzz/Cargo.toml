@@ -14,13 +14,8 @@ libfuzzer-sys = "0.3"
 glib-sys = "0.9"
 gvariant = {path = "../gvariant"}
 
-[dependencies.gvariant-tests]
-path = ".."
-
-# Prevent this from interfering with workspaces
-[workspace]
-members = ["."]
-
 [[bin]]
 name = "fuzz_target_1"
 path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
