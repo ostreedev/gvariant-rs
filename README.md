@@ -70,7 +70,25 @@ fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
 * Fix or confirm inconsistencies with the GLib implementation discovered by
   fuzzing.
 
-### License
+## Hacking
+
+Build with:
+
+    cargo build
+
+Run tests:
+
+    cargo test
+
+Clippy linting:
+
+    cargo clippy
+
+Fuzz testing:
+
+    RUSTFLAGS='-C overflow-checks=on' ASAN_OPTIONS="detect_leaks=0" cargo +nightly fuzz run --release fuzz_target_1
+
+## License
 
 This project is licensed under either of
 
