@@ -413,7 +413,6 @@ macro_rules! gv {
     ($typestr:literal) => {{
         #[allow(unused_imports)]
         mod _m {
-            #[macro_use]
             use $crate::aligned_bytes::{
                 align_offset, empty_aligned, AlignedOffset, AlignedSlice, AsAligned,
             };
@@ -425,6 +424,7 @@ macro_rules! gv {
             pub(crate) struct Marker();
             impl $crate::Marker for Marker {
                 type Type = _gv_type!($typestr);
+                #[allow(clippy::string_lit_as_bytes)]
                 const TYPESTR: &'static [u8] = $typestr.as_bytes();
             }
         };

@@ -1,6 +1,5 @@
 #![no_main]
 
-use glib_sys;
 use gvariant::{
     aligned_bytes::{copy_to_align, AsAligned, A8},
     casting::AlignOf,
@@ -46,7 +45,7 @@ impl GLibVariant {
         if variant.is_null() {
             None
         } else {
-            Some(GLibVariant { variant: variant })
+            Some(GLibVariant { variant })
         }
     }
     unsafe fn get_data(&self) -> &[u8] {
@@ -270,7 +269,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
         }
     } else {
         // Just do some consistency checks:
-        #[allow(unused_must_use)]
+        #[allow(unused_must_use, clippy::unnecessary_operation)]
         {
             *v == gv;
         }

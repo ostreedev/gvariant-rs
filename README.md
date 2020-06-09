@@ -26,9 +26,7 @@ Example: read an ostree dirtree file and print the listing:
 
 ```rust
 use gvariant::{gv, Marker, Structure};
-use hex;
 use std::error::Error;
-use std::io::Read;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
     // Allocate an aligned buffer for the data:
