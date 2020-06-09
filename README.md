@@ -29,15 +29,12 @@ use gvariant::{gv, Marker, Structure};
 use std::error::Error;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    // Allocate an aligned buffer for the data:
-    let mut buf =
-        gvariant::aligned_bytes::alloc_aligned(std::fs::metadata(filename)?.len() as usize);
+    // Read the data into the buffer and interpret as an OSTree tree:
+    let tree = gv!("(a(say)a(sayay))").deserialize(std::fs::File::open(filename)?)?;
 
-    // Read the data into the buffer
-    std::fs::File::open(filename)?.read_exact(&mut buf)?;
-
-    // Interpret as a tree
-    let (files, dirs) = gv!("(a(say)a(sayay))").cast(&buf).to_tuple();
+    // (a(say)a(sayay)) is a structure, so tree implements gvariant::Structure,
+    // and we can turn it into a tuple:
+    let (files, dirs) = tree.to_tuple();
 
     // Print the contents
     for s in dirs {

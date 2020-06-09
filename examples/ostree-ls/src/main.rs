@@ -2,8 +2,11 @@ use gvariant::{gv, Marker, Structure};
 use std::error::Error;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    // Read the data into the buffer and Interpret as an OSTree tree
+    // Read the data into the buffer and interpret as an OSTree tree:
     let tree = gv!("(a(say)a(sayay))").deserialize(std::fs::File::open(filename)?)?;
+
+    // (a(say)a(sayay)) is a structure, so tree implements gvariant::Structure,
+    // and we can turn it into a tuple:
     let (files, dirs) = tree.to_tuple();
 
     // Print the contents
