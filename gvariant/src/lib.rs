@@ -15,8 +15,10 @@
 //! buffers is the responsibility of the user.  See [`aligned_bytes`].
 //!
 //! It's intended to conform to the [GVariant specification] and match the
-//! behaviour of the [GLib implementation].  Exceptions to this are described in
-//! ["Deviations from the Specification"](#deviations-from-the-specification)
+//! behaviour of the reference [GLib implementation], preferring the latter
+//! rather than the former where they disagree.  Exceptions to this are
+//! described in ["Deviations from the Specification and reference
+//! implementation"](#deviations-from-the-specification-and-reference-implementation)
 //! below.
 //!
 //! This library assumes you know the types of the data you are dealing with at
@@ -47,8 +49,10 @@
 //! * Support for all GVariant types is implemented
 //! * Behaviour is identical to GLib's implementation for all data in "normal
 //!   form". This has been confirmed with fuzz testing.  There are some
-//!   differences for data not in normal form.   See
-//!   https://gitlab.gnome.org/GNOME/glib/-/issues/2121 for more information.
+//!   differences for data not in normal form.   See [GNOME/glib#2121] for more
+//!   information.
+//!
+//! [GNOME/glib#2121]: https://gitlab.gnome.org/GNOME/glib/-/issues/2121
 //!
 //! ### TODO
 //!
@@ -81,7 +85,11 @@
 //! * Copying unsized GVariant objects with `to_owned()`
 //! * The std feature
 //!
-//! ## Deviations from the Specification
+//! ## Deviations from the Specification and reference implementation
+//!
+//! This implementation is intended to conform to the [GVariant specification]
+//! and match the behaviour of the reference [GLib implementation], preferring
+//! the latter rather than the former where they disagree.
 //!
 //! ### Maximum size of objects
 //!
@@ -118,6 +126,28 @@
 //!
 //! We don't currently do any validation of the object path or signature types,
 //! treating them as normal strings.
+//!
+//! ### Data that overlaps framing offsets (non-normal form)
+//!
+//! This applies to arrays of non-fixed size type in non-normal form.  We follow
+//! the behaviour of GLib reference implementation rather than the GVariant spec
+//! in this instance.
+//!
+//! The spec says:
+//!
+//! > #### Child Values Overlapping Framing Offsets
+//! >
+//! > If the byte sequence of a child value overlaps the framing offsets of the
+//! > container it resides within then this error is ignored. The child is given
+//! > a value that corresponds to the normal deserialisation process performed
+//! > on this byte sequence (including the bytes from the framing offsets) with
+//! > the type of the child.
+//!
+//! Whereas we give the child value the default value for the type consistent
+//! with the GLib implementation.  This is the behaviour in GLib since 2.60,
+//! 2.58.2 and 2.56.4.
+//!
+//! See [GNOME/glib#2121] for more information.
 //!
 //! ## Design
 //!
@@ -1149,7 +1179,9 @@ impl<T: Cast + PartialEq + Eq + ?Sized> Eq for NonFixedWidthArray<T> {}
 ///
 /// [`iter`]: NonFixedWidthArray::iter
 pub struct NonFixedWidthArrayIterator<'a, Item: Cast + ?Sized> {
-    slice: &'a NonFixedWidthArray<Item>,
+    data: &'a AlignedSlice<Item::AlignOf>,
+    offsets: &'a [u8],
+
     next_start: usize,
     offset_idx: usize,
     offset_size: OffsetSize,
@@ -1175,32 +1207,28 @@ impl<Item: Cast + ?Sized + PartialEq<T>, T: ?Sized> PartialEq<NonFixedWidthArray
 impl<'a, Item: Cast + 'static + ?Sized> Iterator for NonFixedWidthArrayIterator<'a, Item> {
     type Item = &'a Item;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.offset_idx >= self.slice.data.len() {
+        if self.offset_idx >= self.offsets.len() {
             None
         } else {
             let start = align_offset::<Item::AlignOf>(self.next_start);
-            let end = read_uint(
-                &self.slice.data.as_ref()[self.offset_idx..],
-                self.offset_size,
-                0,
-            );
+            let end = read_uint(&self.offsets[self.offset_idx..], self.offset_size, 0);
             self.offset_idx += self.offset_size as usize;
             self.next_start = end;
-            if end < start || end >= self.slice.data.len() {
+            if end < start || end > self.data.len() {
                 // If the framing offsets (or calculations based on them)
                 // indicate that any part of the byte sequence of a child value
                 // would fall outside of the byte sequence of the parent then
                 // the child is given the default value for its type.
                 Some(Item::try_from_aligned_slice(aligned_bytes::empty_aligned()).unwrap())
             } else {
-                Some(Item::try_from_aligned_slice(&self.slice.data[..end][start..]).unwrap())
+                Some(Item::try_from_aligned_slice(&self.data[..end][start..]).unwrap())
             }
         }
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         let l = match self.offset_size {
             OffsetSize::U0 => 0,
-            _ => (self.slice.data.len() - self.offset_idx) / self.offset_size as usize,
+            _ => (self.offsets.len() - self.offset_idx) / self.offset_size as usize,
         };
         (l, Some(l))
     }
@@ -1213,10 +1241,12 @@ impl<'a, Item: Cast + 'static + ?Sized> IntoIterator for &'a NonFixedWidthArray<
     type IntoIter = NonFixedWidthArrayIterator<'a, Item>;
     fn into_iter(self) -> Self::IntoIter {
         let (osz, lfo) = read_last_frame_offset(&self.data);
+        let (data, offsets) = self.data.split_at(lfo);
         NonFixedWidthArrayIterator {
-            slice: self,
+            data,
+            offsets,
             next_start: 0,
-            offset_idx: lfo,
+            offset_idx: 0,
             offset_size: osz,
         }
     }
@@ -1231,7 +1261,7 @@ impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArr
             0 => 0,
             x => read_uint(frame_offsets, osz, x - 1),
         });
-        if start < self.data.len() && end < self.data.len() && start <= end {
+        if start < self.data.len() && end <= lfo && start <= end {
             Item::try_from_aligned_slice(&self.data[..end][start..]).unwrap()
         } else {
             // Start or End Boundary of a Child Falls Outside the Container
@@ -1896,7 +1926,7 @@ mod tests {
         // Non-normal regression test found by fuzzing:
         let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x01\x00".as_aligned());
         let v = assert_array_self_consistent(nfwa);
-        assert_eq!(v, [&[1u8] as &[u8], &[]]);
+        assert_eq!(v, [&[] as &[u8], &[]]);
 
         // Non-normal regression test found by fuzzing. There are a non-integral
         // number of array elements indicated.  1.5 in this case:
