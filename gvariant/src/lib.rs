@@ -1206,6 +1206,8 @@ impl<'a, Item: Cast + 'static + ?Sized> Iterator for NonFixedWidthArrayIterator<
     }
 }
 
+impl<'a, Item: Cast + ?Sized> ExactSizeIterator for NonFixedWidthArrayIterator<'a, Item> {}
+
 impl<'a, Item: Cast + 'static + ?Sized> IntoIterator for &'a NonFixedWidthArray<Item> {
     type Item = &'a Item;
     type IntoIter = NonFixedWidthArrayIterator<'a, Item>;
@@ -1912,6 +1914,7 @@ mod tests {
         for (n, elem) in v.iter().enumerate() {
             assert_eq!(**elem, a[n]);
         }
+        assert!(a.iter().len() == a.len());
         v
     }
 
