@@ -252,7 +252,11 @@ fn test_cmp<'data, T: gvariant::Marker>(
 
     // Round-tripping serialization should give the same result:
     // println!("{:?} {:?}", reserialized.as_slice(), data.as_ref());
-    assert_eq!(m.cast(rs.as_ref()), v);
+    if T::TYPESTR != b"d" {
+        // f64 doesn't implement Eq because of NaNs, so we only do this check
+        // for non-f64s
+        assert_eq!(m.cast(rs.as_ref()), v);
+    }
 
     //println!("{}: {:?} == {:?}", &std::str::from_utf8(T::TYPESTR).unwrap(), gv, v);
     if gv.is_normal_form() {
