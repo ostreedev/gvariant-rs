@@ -143,8 +143,21 @@ impl PartialEq<GLibVariant> for f64 {
 impl PartialEq<GLibVariant> for Str {
     fn eq(&self, rhs: &GLibVariant) -> bool {
         // Internal consistency:
-        if rhs.is_normal_form() {
+        let normal_form = rhs.is_normal_form();
+        if normal_form {
             assert_eq!(self.to_str().as_bytes(), self.as_bytes_non_conformant());
+        }
+
+        let ts = unsafe {
+            std::ptr::read(glib_sys::g_variant_type_peek_string(
+                glib_sys::g_variant_get_type(rhs.variant),
+            ))
+        } as u8;
+        if (ts == b'o' || ts == b'g') && !normal_form {
+            // NON-CONFORMANT: We don't have support for validating object paths
+            // or type signatures, so they're not guaranteed to match for
+            // non-normal form data.
+            return true;
         }
 
         let mut len: usize = 0;
@@ -233,7 +246,14 @@ impl PartialEq<GLibVariant> for Variant {
         };
         let g_ty = unsafe { CStr::from_ptr(glib_sys::g_variant_get_type_string(g.variant)) };
         let (ty, data) = self.split();
-        ty == g_ty.to_bytes() && data.as_ref() as &[u8] == unsafe { g.get_data() }
+        if g.is_normal_form() {
+            ty == g_ty.to_bytes() && data.as_ref() as &[u8] == unsafe { g.get_data() }
+        } else {
+            // NON-CONFORMANT: We don't implement precise equality for Variants
+            // as that would require run-time inspection of GVariant types, so
+            // here we just assume equality.
+            true
+        }
     }
 }
 
@@ -274,11 +294,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
             assert_eq!(reserialized.as_slice(), data.as_ref());
         }
     } else {
-        // Just do some consistency checks:
-        #[allow(unused_must_use, clippy::unnecessary_operation)]
-        {
-            *v == gv;
-        }
+        assert_eq!(*v, gv);
     }
 }
 
