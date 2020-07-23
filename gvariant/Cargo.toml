@@ -1,6 +1,6 @@
 [package]
 name = "gvariant"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["William Manley <will@stb-tester.com>"]
 edition = "2018"
 description = "A pure-rust implementation of the GVariant serialisation format"
@@ -18,5 +18,5 @@ alloc = []
 
 [dependencies]
 ref-cast = "1.0"
-gvariant-macro = {path = "../gvariant-macro", version = "0.2.0"}
+gvariant-macro = {path = "../gvariant-macro", version = "0.3.0"}
 memchr = { version = "2", default-features = false }
