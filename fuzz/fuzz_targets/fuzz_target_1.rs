@@ -143,7 +143,9 @@ impl PartialEq<GLibVariant> for f64 {
 impl PartialEq<GLibVariant> for Str {
     fn eq(&self, rhs: &GLibVariant) -> bool {
         // Internal consistency:
-        assert_eq!(self.to_cstr().to_bytes(), self.to_bytes());
+        if rhs.is_normal_form() {
+            assert_eq!(self.to_str().as_bytes(), self.as_bytes_non_conformant());
+        }
 
         let mut len: usize = 0;
         let string = unsafe {
@@ -152,7 +154,7 @@ impl PartialEq<GLibVariant> for Str {
                 &mut len as *mut usize,
             ))
         };
-        self.to_bytes().len() == len && self.to_bytes() == string.to_bytes()
+        self.to_str().len() == len && self.to_str().as_bytes() == string.to_bytes()
     }
 }
 

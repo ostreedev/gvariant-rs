@@ -67,7 +67,6 @@
 //! Required for:
 //!
 //! * our errors to implement [`std::error::Error`]
-//! * `Str`'s `to_cstr()` method
 //! * [`Marker::deserialize`]
 //! * [`aligned_bytes::read_to_slice`]
 //!
@@ -148,6 +147,11 @@
 //! 2.58.2 and 2.56.4.
 //!
 //! See [GNOME/glib#2121] for more information.
+//!
+//! ### Handling of non-normal form strings
+//!
+//! We are consistent with the GLib implementation in this regard rather than
+//! the spec. See the note under [`Str::to_str`]
 //!
 //! ## Design
 //!
@@ -232,10 +236,7 @@ use core::{
 };
 
 #[cfg(feature = "std")]
-use std::{
-    ffi::{CStr, CString},
-    io::Write,
-};
+use std::io::Write;
 
 use ref_cast::RefCast;
 
@@ -563,9 +564,8 @@ impl_cast_for!(f64, 0.);
 ///     # let data = empty_aligned();
 ///     gv!("s").cast(data);
 ///
-/// We can't use Rust's `str` type because, although UTF-8 is "expected and
-/// encouraged" it is not guaranteed. We can't use `&[u8]` here because GVariant
-/// strings always end with a NUL byte.
+/// We can't use Rust's `str` type here because GVariant strings always end with
+/// a NUL byte.
 #[derive(RefCast, Eq)]
 #[repr(transparent)]
 pub struct Str {
@@ -581,11 +581,13 @@ impl ToOwned for Str {
 impl Str {
     /// Convert `&Str` to `&[u8]`
     ///
-    /// This will give the same result as `to_bytes()` for normal data, but
-    /// unlike `to_bytes()` it should be 0-cost.
+    /// This will give the same result as `s.to_str().as_bytes()` for normal
+    /// data, but unlike using `to_str()` it should be 0-cost as it doesn't
+    /// require scanning the underlying data.
     ///
-    /// The result of this function will deviate from the GVariant specification
-    /// if the data contains embedded NULs.  The spec says:
+    /// The result of this function will deviate from the GLib GVariant
+    /// implementation if the data contains embedded NULs or non-utf8 data.  The
+    /// spec says:
     ///
     /// > **2.7.3 Handling Non-Normal Serialised Data**
     /// >
@@ -599,53 +601,35 @@ impl Str {
     ///
     /// Instead this function will return the data with the embedded NULs intact
     /// (excluding the final NUL byte)
-    pub fn to_bytes_non_conformant(&self) -> &[u8] {
+    pub fn as_bytes_non_conformant(&self) -> &[u8] {
         let d: &[u8] = self.data.as_ref();
         match d.last() {
             Some(b'\0') => &d[..d.len() - 1],
             _ => b"",
         }
     }
-    /// Convert `&Str` to `&[u8]`
+    /// Convert `&Str` to `&str`
     ///
-    /// To handle non-normal data we must scanning the contents of the buffer
-    /// for NUL bytes.  So the performance of this function is linear with
-    /// string length.  If this is unacceptable for your use-case and you know
-    /// you'll be dealing with normal data use `to_bytes_non_conformant`.
-    pub fn to_bytes(&self) -> &[u8] {
-        match self.find_nul() {
-            Some(n) => &self.data.as_ref()[..n],
-            None => b"",
+    /// For consistency with the GLib implementation this will return a empty
+    /// string if the underlying data is not utf-8 encoded or contains embedded
+    /// NULs.  This differs from the wording of the GVariant specification which
+    /// says that "the use of UTF-8 is expected and encouraged", but it is not
+    /// guaranteed.
+    ///
+    /// This function executes in linear time with the length of the data.  If
+    /// you know that your data is in normal form you can use
+    /// `self.to_bytes_non_conformant()` instead which executes in constant
+    /// time.
+    pub fn to_str(&self) -> &str {
+        let b = self.as_bytes_non_conformant();
+        if b.iter().position(|x| *x == b'\0').is_some() {
+            ""
+        } else {
+            match core::str::from_utf8(&self.as_bytes_non_conformant()) {
+                Ok(x) => x,
+                Err(_) => "",
+            }
         }
-    }
-    /// Convert `&Str` to `&std::ffi::CStr`
-    ///
-    /// This currently requires scanning the contents of the buffer for NUL
-    /// bytes. So the performance of this function is currently linear with
-    /// string length.  This could be changed in the future to be 0-cost if
-    /// `std::ffi::CStr::from_ptr` is changed similarly.
-    #[cfg(feature = "std")]
-    pub fn to_cstr(&self) -> &CStr {
-        CStr::from_bytes_with_nul(match self.find_nul() {
-            Some(n) => &self.data.as_ref()[..=n],
-            None => b"\0",
-        })
-        .unwrap()
-    }
-    /// Convert `&Str` to `&str` assuming UTF-8 encoding
-    ///
-    /// The GVariant spec says that "the use of UTF-8 is expected and
-    /// encouraged", but it is not guaranteed, so we return a [`Result`] here.
-    pub fn to_str(&self) -> Result<&str, core::str::Utf8Error> {
-        core::str::from_utf8(&self.to_bytes())
-    }
-    fn find_nul(&self) -> Option<usize> {
-        let d: &[u8] = self.data.as_ref();
-        match d.last() {
-            Some(b'\0') => (),
-            _ => return None,
-        }
-        Some(d.iter().position(|x| *x == b'\0').unwrap())
     }
 }
 unsafe impl AllBitPatternsValid for Str {}
@@ -670,19 +654,23 @@ impl Cast for Str {
 }
 impl SerializeTo<Str> for &Str {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        self.to_cstr().serialize(f)
+        let b = self.to_str().as_bytes();
+        f.write_all(b)?;
+        f.write_all(b"\0")?;
+        Ok(b.len() + 1)
     }
 }
 impl SerializeTo<Str> for &str {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        let b = self.as_bytes();
+        if b.iter().position(|x| *x == b'\0').is_some() {
+            // Can't encode strings with embedded NULs with GVariant
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Strings may not contain NULs",
+            ));
+        }
         f.write_all(self.as_bytes())?;
-        f.write_all(b"\0")?;
-        Ok(self.len() + 1)
-    }
-}
-impl SerializeTo<Str> for &[u8] {
-    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        f.write_all(self)?;
         f.write_all(b"\0")?;
         Ok(self.len() + 1)
     }
@@ -692,16 +680,9 @@ impl<T: SerializeTo<Str> + Copy> SerializeTo<Str> for &T {
         (*self).serialize(f)
     }
 }
-impl SerializeTo<Str> for &CStr {
-    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        let b = self.to_bytes_with_nul();
-        f.write_all(b)?;
-        Ok(b.len())
-    }
-}
 impl SerializeTo<Str> for &Box<Str> {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        self.to_cstr().serialize(f)
+        self.to_str().serialize(f)
     }
 }
 impl SerializeTo<Str> for &String {
@@ -711,55 +692,30 @@ impl SerializeTo<Str> for &String {
         Ok(self.len() + 1)
     }
 }
-#[cfg(feature = "alloc")]
-impl SerializeTo<Str> for &Vec<u8> {
-    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        f.write_all(self)?;
-        f.write_all(b"\0")?;
-        Ok(self.len() + 1)
-    }
-}
-#[cfg(feature = "std")]
-impl SerializeTo<Str> for &CString {
-    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        let b = self.to_bytes_with_nul();
-        f.write_all(b)?;
-        Ok(b.len())
-    }
-}
 impl PartialEq for Str {
     fn eq(&self, other: &Self) -> bool {
-        self.to_bytes() == other.to_bytes()
-    }
-}
-impl PartialEq<[u8]> for Str {
-    fn eq(&self, other: &[u8]) -> bool {
-        self.to_bytes() == other
-    }
-}
-impl PartialEq<Str> for [u8] {
-    fn eq(&self, other: &Str) -> bool {
-        self == other.to_bytes()
+        self.as_bytes_non_conformant() == other.as_bytes_non_conformant()
+            || self.to_str() == other.to_str()
     }
 }
 impl PartialEq<Str> for str {
     fn eq(&self, other: &Str) -> bool {
-        self.as_bytes() == other.to_bytes()
+        self == other.to_str()
     }
 }
 impl PartialEq<str> for Str {
     fn eq(&self, other: &str) -> bool {
-        self.to_bytes() == other.as_bytes()
+        self.to_str() == other
     }
 }
 impl Display for Str {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Display::fmt(&DisplayUtf8Lossy(self.to_bytes()), f)
+        core::fmt::Display::fmt(self.to_str(), f)
     }
 }
 impl Debug for Str {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&DisplayUtf8Lossy(self.to_bytes()), f)
+        core::fmt::Debug::fmt(self.to_str(), f)
     }
 }
 
@@ -1860,16 +1816,14 @@ mod tests {
         assert_eq!(
             MaybeNonFixedSize::<Str>::from_aligned_slice(b"\0".as_aligned())
                 .to_option()
-                .unwrap()
-                .to_bytes(),
-            b""
+                .unwrap(),
+            ""
         );
         assert_eq!(
             MaybeNonFixedSize::<Str>::from_aligned_slice(b"hello world\0\0".as_aligned())
                 .to_option()
-                .unwrap()
-                .to_bytes(),
-            b"hello world"
+                .unwrap(),
+            "hello world"
         );
     }
     #[test]
@@ -1902,14 +1856,14 @@ mod tests {
             NonFixedWidthArray::<Str>::from_aligned_slice(b"hello\0world\0\x06\x0c".as_aligned());
         assert_eq!(a_s.len(), 2);
         assert_eq!(
-            a_s.into_iter().map(|x| x.to_bytes()).collect::<Vec<_>>(),
-            &[b"hello", b"world"]
+            a_s.into_iter().map(|x| x.to_str()).collect::<Vec<_>>(),
+            &["hello", "world"]
         );
-        assert_eq!(a_s[0].to_bytes(), b"hello");
-        assert_eq!(a_s[1].to_bytes(), b"world");
+        assert_eq!(&a_s[0], "hello");
+        assert_eq!(&a_s[1], "world");
         assert!(!a_s.is_empty());
-        assert_eq!(a_s.first().unwrap(), b"hello".as_ref());
-        assert_eq!(a_s.last().unwrap(), b"world".as_ref());
+        assert_eq!(a_s.first().unwrap(), "hello");
+        assert_eq!(a_s.last().unwrap(), "world");
 
         let mut it = a_s.iter();
         assert_eq!(it.size_hint(), (2, Some(2)));
@@ -2024,15 +1978,15 @@ mod tests {
 
     #[test]
     fn test_gvariantstr() {
-        assert_eq!(Str::from_aligned_slice(b"".as_aligned()).to_bytes(), b"");
-        assert_eq!(Str::from_aligned_slice(b"\0".as_aligned()).to_bytes(), b"");
+        assert_eq!(Str::from_aligned_slice(b"".as_aligned()).to_str(), "");
+        assert_eq!(Str::from_aligned_slice(b"\0".as_aligned()).to_str(), "");
         assert_eq!(
-            Str::from_aligned_slice(b"hello world\0".as_aligned()).to_bytes(),
-            b"hello world"
+            Str::from_aligned_slice(b"hello world\0".as_aligned()).to_str(),
+            "hello world"
         );
         assert_eq!(
             Str::from_aligned_slice(b"hello world\0".as_aligned()),
-            b"hello world".as_ref()
+            "hello world"
         );
     }
 
