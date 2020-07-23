@@ -69,6 +69,7 @@
 //! * our errors to implement [`std::error::Error`]
 //! * [`Marker::deserialize`]
 //! * [`aligned_bytes::read_to_slice`]
+//! * Some CPU dependent string handling optimisations in the memchr crate
 //!
 //! Disable this feature for no-std support.
 //!
@@ -238,6 +239,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::io::Write;
 
+use memchr;
 use ref_cast::RefCast;
 
 pub mod aligned_bytes;
@@ -622,7 +624,7 @@ impl Str {
     /// time.
     pub fn to_str(&self) -> &str {
         let b = self.as_bytes_non_conformant();
-        if b.iter().position(|x| *x == b'\0').is_some() {
+        if memchr::memchr(b'\0', b).is_some() {
             ""
         } else {
             match core::str::from_utf8(&self.as_bytes_non_conformant()) {
@@ -663,7 +665,7 @@ impl SerializeTo<Str> for &Str {
 impl SerializeTo<Str> for &str {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         let b = self.as_bytes();
-        if b.iter().position(|x| *x == b'\0').is_some() {
+        if memchr::memchr(b'\0', b).is_some() {
             // Can't encode strings with embedded NULs with GVariant
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -868,13 +870,7 @@ impl Variant {
     pub fn split(&self) -> (&[u8], &AlignedSlice<A8>) {
         // Variants are serialised by storing the serialised data of the child,
         // plus a zero byte, plus the type string of the child.
-        let mut split_pos = None;
-        for (n, c) in self.0.rchunks_exact(1).enumerate() {
-            if c[0] == b'\0' {
-                split_pos = Some(self.0.len() - n - 1);
-                break;
-            }
-        }
+        let split_pos = memchr::memrchr(b'\0', &self.0);
         if let Some(mid) = split_pos {
             let (data, ty) = self.0.split_at(mid);
             (&ty[1..], data)
