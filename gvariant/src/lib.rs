@@ -723,6 +723,17 @@ impl Debug for Str {
         core::fmt::Debug::fmt(self.to_str(), f)
     }
 }
+impl<'a> From<&'a Str> for &'a str {
+    fn from(x: &'a Str) -> Self {
+        x.to_str()
+    }
+}
+#[cfg(feature = "alloc")]
+impl From<&Str> for String {
+    fn from(x: &Str) -> Self {
+        x.to_str().into()
+    }
+}
 
 // TODO: Replace this with core::str::lossy::Utf8Lossy if it's ever stabilised.
 struct DisplayUtf8Lossy<'a>(&'a [u8]);
