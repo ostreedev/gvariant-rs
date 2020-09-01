@@ -355,6 +355,8 @@ pub trait Marker: Copy {
     ///     gv!("ms").serialize(&comment, &mut myfile)?;
     ///     # Ok(())
     ///     # }
+    ///
+    /// For information on how to serialize to the variant type see [VariantWrap].
     #[cfg(feature = "std")]
     fn serialize(
         &self,
@@ -885,6 +887,62 @@ impl PartialEq for Variant {
     /// "normal form".  This may change in the future.
     fn eq(&self, other: &Self) -> bool {
         self.split() == other.split()
+    }
+}
+
+/// Mark a value to be serialised as type **v**
+///
+/// GVariant has a variant type which can contain a value of any GVariant type.
+/// This can be used to implment enums.  This is a wrapper type that helps
+/// serialising to those types.
+///
+/// For example:  Instead of serialising this as type **i**:
+///
+///     use gvariant::{gv, Marker, VariantWrap};
+///     let x: i32 = 5;
+///     let serialized_i = gv!("i").serialize_to_vec(x);
+///
+/// This code will serialised to a value of type **v** that contains a value of
+/// type **i**:
+///
+///     # use gvariant::{gv, Marker, VariantWrap};
+///     # let x: i32 = 5;
+///     let serialized_vi = gv!("v").serialize_to_vec(VariantWrap(gv!("i"), x));
+///
+/// Similarly you can wrap an **i** in a **v** in another **v**:
+///
+///     # use gvariant::{gv, Marker, VariantWrap};
+///     # let x: i32 = 5;
+///     let serialized_vvi = gv!("v").serialize_to_vec(
+///         VariantWrap(gv!("v"), VariantWrap(gv!("i"), x)));
+///
+/// Typically you'd represent rust enums as GVariant variants.  The best way to
+/// serialize enums as variants is to implement `SerializeTo` for the enum.
+/// Example:
+///
+///     # use gvariant::{gv, Marker, SerializeTo, VariantWrap};
+///     enum MyEnum {
+///         Bool(bool),
+///         String(String),
+///     }
+///     impl SerializeTo<gvariant::Variant> for &MyEnum {
+///         fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
+///             match self {
+///                 MyEnum::Bool(x) => VariantWrap(gv!("b"), x).serialize(f),
+///                 MyEnum::String(x) => VariantWrap(gv!("s"), x).serialize(f),
+///             }
+///         }
+///     }
+///
+/// A common type type seen in the wild is the "bag of properties" **a{sv}**.
+#[derive(Debug, Copy, Clone)]
+pub struct VariantWrap<M: Marker, T: SerializeTo<M::Type>>(pub M, pub T);
+impl<M: Marker, T: SerializeTo<M::Type>> SerializeTo<Variant> for VariantWrap<M, T> {
+    fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
+        let len = self.0.serialize(self.1, f)?;
+        f.write_all(b"\0")?;
+        f.write_all(M::TYPESTR)?;
+        Ok(len + 1 + M::TYPESTR.len())
     }
 }
 
@@ -2005,5 +2063,21 @@ mod tests {
 
         let non_normal = Variant::from_aligned_slice(data_1.as_ref());
         assert_ne!(non_normal, v);
+
+        // Encode an **as** as a variant
+        let x = VariantWrap(gv!("as"), ["hello", "goodbye"].as_ref());
+        let v = gv!("v").serialize_to_vec(x);
+        assert_eq!(v, b"hello\0goodbye\0\x06\x0e\0as");
+
+        // Wrap in another layer of variant
+        let xv = VariantWrap(gv!("v"), x);
+        let vv = gv!("v").serialize_to_vec(xv);
+        assert_eq!(vv, b"hello\0goodbye\0\x06\x0e\0as\0v");
+
+        // Deserialize and unwrap those variants to get the original **as** back:
+        let de_vv: Box<Variant> = gv!("v").from_bytes(vv);
+        let de_v = de_vv.get(gv!("v")).unwrap();
+        let de = de_v.get(gv!("as")).unwrap();
+        assert_eq!(de, ["hello", "goodbye"].as_ref())
     }
 }
