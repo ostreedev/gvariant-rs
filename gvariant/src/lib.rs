@@ -70,6 +70,7 @@
 //! * [`Marker::deserialize`]
 //! * [`aligned_bytes::read_to_slice`]
 //! * Some CPU dependent string handling optimisations in the memchr crate
+//! * Serialisation: although this requirement could be relaxed in the future
 //!
 //! Disable this feature for no-std support.
 //!
