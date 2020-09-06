@@ -16,7 +16,7 @@ fn test_struct_into_tuple() {
     assert_eq!(t, ());
 
     let t = gv!("(i)").cast(empty_aligned()).to_tuple();
-    assert_eq!(t, (&0));
+    assert_eq!(t, (&0,));
 
     let t = gv!("(s)").cast(empty_aligned()).to_tuple();
     assert_eq!(t.0.to_str(), "");

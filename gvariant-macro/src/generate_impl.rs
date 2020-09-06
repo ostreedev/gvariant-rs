@@ -362,8 +362,8 @@ fn write_packed_struct(
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
         writeln!(out, "    pub field_{} : {},", n, rust_type)?;
         field_arglist.push(format!("field_{} : {}", n, rust_type));
-        get_fields.push(format!("&self.field_{}", n));
-        tuple.push(format!("&'a {}", rust_type));
+        get_fields.push(format!("&self.field_{},", n));
+        tuple.push(format!("&'a {},", rust_type));
         types.push(rust_type);
         set_fields.push_str(format!("field_{} : field_{},\n", n, n).as_str());
         defaults.push("0".to_string());
@@ -421,12 +421,12 @@ fn write_packed_struct(
         ",
         escaped = escaped,
         align = align_of(gv),
-        get_fields = get_fields.join(", "),
+        get_fields = get_fields.join(" "),
         field_arglist = field_arglist.join(", "),
         set_fields = set_fields,
         defaults = defaults.join(", "),
         eq = eq.join(" && "),
-        tuple = tuple.join(", ")
+        tuple = tuple.join(" ")
     )?;
 
     Ok(())
