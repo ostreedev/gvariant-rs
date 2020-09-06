@@ -339,6 +339,9 @@ fn write_packed_struct(
     let mut defaults = vec![];
     let mut types = vec![];
     let mut tuple = vec![];
+    let mut serialize_types = vec![];
+    let mut serialize_types2 = vec![];
+    let mut serialize_cmds = vec![];
 
     let mut last_end = 0;
     let mut padding_count = 0;
@@ -356,6 +359,7 @@ fn write_packed_struct(
                 "_padding_{} : [0u8;{}],\n",
                 padding_count, padding
             ));
+            serialize_cmds.push(format!("f.write_all(b\"{}\")?;", "\\0".repeat(padding)));
             padding_count += 1;
         }
         let rust_type: String = marker_type(&child);
@@ -364,6 +368,12 @@ fn write_packed_struct(
         field_arglist.push(format!("field_{} : {}", n, rust_type));
         get_fields.push(format!("&self.field_{},", n));
         tuple.push(format!("&'a {},", rust_type));
+        serialize_types.push(format!(
+            "T{}: ::gvariant::SerializeTo<{}> + Copy",
+            n, rust_type
+        ));
+        serialize_types2.push(format!("T{},", n));
+        serialize_cmds.push(format!("self.{}.serialize(f)?;", n));
         types.push(rust_type);
         set_fields.push_str(format!("field_{} : field_{},\n", n, n).as_str());
         defaults.push("0".to_string());
@@ -377,6 +387,7 @@ fn write_packed_struct(
             "_padding_{} : [0u8;{}],\n",
             padding_count, padding
         ));
+        serialize_cmds.push(format!("f.write_all(b\"{}\")?;", "\\0".repeat(padding)));
     }
     writeln!(
         out,
@@ -418,11 +429,20 @@ fn write_packed_struct(
                 value.to_tuple()
             }}
         }}
+        impl<{serialize_types}> ::gvariant::SerializeTo<Structure{escaped}> for &({serialize_types2}) {{
+            fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {{
+                {serialize_cmds}
+                Ok(core::mem::size_of::<Structure{escaped}>())
+            }}
+        }}
         ",
         escaped = escaped,
         align = align_of(gv),
         get_fields = get_fields.join(" "),
         field_arglist = field_arglist.join(", "),
+        serialize_types = serialize_types.join(", "),
+        serialize_types2 = serialize_types2.join(" "),
+        serialize_cmds = serialize_cmds.join("\n"),
         set_fields = set_fields,
         defaults = defaults.join(", "),
         eq = eq.join(" && "),

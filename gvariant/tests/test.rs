@@ -32,6 +32,30 @@ fn test_struct_into_tuple() {
 }
 
 #[test]
+fn test_struct_serialisation() {
+    // () - Unit type
+    let v = gv!("()").serialize_to_vec(&());
+    assert_eq!(v, b"\0");
+
+    // (i) - Fixed size
+    let v = gv!("(i)").serialize_to_vec(&(87654321,));
+    assert_eq!(v, b"\xb1\x7f\x39\x05");
+
+    // (iy) - Fixed size with padding at end
+    let v = gv!("(iy)").serialize_to_vec(&(87654321, 6));
+    assert_eq!(v, b"\xb1\x7f\x39\x05\x06\x00\x00\x00");
+
+    // (yi) - Fixed size with padding in middle
+    let v = gv!("(yi)").serialize_to_vec(&(6, 87654321));
+    assert_eq!(v, b"\x06\x00\x00\x00\xb1\x7f\x39\x05");
+
+    // (yyyyi) - Fixed size no padding
+    let v = gv!("(yyyyi)").serialize_to_vec(&(6, 5, 4, 3, 87654321));
+    assert_eq!(v, b"\x06\x05\x04\x03\xb1\x7f\x39\x05");
+
+}
+
+#[test]
 fn test_complex_types() {
     // Data created in Python with:
     //
