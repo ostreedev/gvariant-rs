@@ -95,7 +95,6 @@ fn test_complex_types() {
         _root_tree,
         _root_tree_meta,
     ) = commit.into();
-    println!("{:?}", commit);
     let metadata: HashMap<_, _> = metadata
         .iter()
         .map(|x| x.to_tuple())
@@ -106,6 +105,19 @@ fn test_complex_types() {
         "7.1707"
     );
     assert_eq!(*timestamp, 15444671992342511616);
+
+    let buf = copy_to_align(
+        b"\0\0\0\0\x11\x11\x11\x11\x22\x22\x22\x22\x22\x22\x22\x22\x33\x33\x33\x33\0\0\0\0\x44\x44\x44\x44\x44\x44\x44\x44\x55\0\0\0\x66\x66\x66\x66\0\x22\x01");
+    let t = gv!("(sututysis)").cast(buf.as_ref()).to_tuple();
+    assert_eq!(t.0, "");
+    assert_eq!(*t.1, 0x11111111);
+    assert_eq!(*t.2, 0x2222222222222222);
+    assert_eq!(*t.3, 0x33333333);
+    assert_eq!(*t.4, 0x4444444444444444);
+    assert_eq!(*t.5, 0x55);
+    assert_eq!(t.6, "");
+    assert_eq!(*t.7, 0x66666666);
+    assert_eq!(t.8, "");
 }
 
 #[test]

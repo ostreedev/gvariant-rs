@@ -101,6 +101,17 @@ impl<A: Alignment> core::ops::BitOr for AlignedOffset<A> {
     }
 }
 
+// These are useful for implementing the field alignment algorithm described in
+// the GVariant spec
+impl<A: Alignment> core::ops::Add for AlignedOffset<A> {
+    type Output = AlignedOffset<A>;
+    fn add(self, rhs: Self) -> Self::Output {
+        // This is safe because neither of A or B will have the bottom bits set,
+        // so we'll end up with a multiple of neither:
+        AlignedOffset::<A>(self.0 + rhs.0, PhantomData::<A> {})
+    }
+}
+
 macro_rules! impl_bitor {
     ($x:ty, $y:ty, $min:ty) => {
         impl core::ops::BitOr<AlignedOffset<$x>> for AlignedOffset<$y> {
