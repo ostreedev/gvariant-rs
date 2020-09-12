@@ -3,8 +3,8 @@
 use gvariant::{
     aligned_bytes::{copy_to_align, AsAligned, A8},
     casting::AlignOf,
-    gv, Bool, Cast, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray, SerializeTo, Str,
-    Variant,
+    gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray, SerializeTo,
+    Str, Structure, Variant,
 };
 use libfuzzer_sys::fuzz_target;
 use std::{
@@ -21,6 +21,9 @@ impl GLibVariantType {
         GLibVariantType {
             ptr: unsafe { glib_sys::g_variant_type_new(cs.as_ptr()) },
         }
+    }
+    fn from_marker<M: Marker>(_: &M) -> GLibVariantType {
+        Self::new(&std::str::from_utf8(M::TYPESTR).unwrap())
     }
 }
 impl Drop for GLibVariantType {
@@ -58,6 +61,14 @@ impl GLibVariant {
     fn is_normal_form(&self) -> bool {
         assert!(!self.variant.is_null());
         (unsafe { glib_sys::g_variant_is_normal_form(self.variant) }) > 0
+    }
+    fn get_child(&self, n: usize) -> GLibVariant {
+        let len = unsafe { glib_sys::g_variant_n_children(self.variant) };
+        assert!(n < len);
+        unsafe {
+            GLibVariant::new_from_gvariant(glib_sys::g_variant_get_child_value(self.variant, n))
+                .unwrap()
+        }
     }
 }
 
@@ -188,10 +199,7 @@ where
             return false;
         }
         for (n, elem) in self.iter().enumerate() {
-            let child = unsafe {
-                GLibVariant::new_from_gvariant(glib_sys::g_variant_get_child_value(rhs.variant, n))
-                    .unwrap()
-            };
+            let child = rhs.get_child(n);
             if *elem != child {
                 return false;
             }
@@ -257,6 +265,31 @@ impl PartialEq<GLibVariant> for Variant {
     }
 }
 
+impl<
+        T0: PartialEq<GLibVariant> + ?Sized,
+        T1: PartialEq<GLibVariant> + ?Sized,
+        T2: PartialEq<GLibVariant> + ?Sized,
+        T3: PartialEq<GLibVariant> + ?Sized,
+        T4: PartialEq<GLibVariant> + ?Sized,
+        T5: PartialEq<GLibVariant> + ?Sized,
+        T6: PartialEq<GLibVariant> + ?Sized,
+        T7: PartialEq<GLibVariant> + ?Sized,
+        T8: PartialEq<GLibVariant> + ?Sized,
+    > PartialEq<GLibVariant> for (&T0, &T1, &T2, &T3, &T4, &T5, &T6, &T7, &T8)
+{
+    fn eq(&self, rhs: &GLibVariant) -> bool {
+        *self.0 == rhs.get_child(0)
+            && *self.1 == rhs.get_child(1)
+            && *self.2 == rhs.get_child(2)
+            && *self.3 == rhs.get_child(3)
+            && *self.4 == rhs.get_child(4)
+            && *self.5 == rhs.get_child(5)
+            && *self.6 == rhs.get_child(6)
+            && *self.7 == rhs.get_child(7)
+            && *self.8 == rhs.get_child(8)
+    }
+}
+
 fn test_cmp<'data, T: gvariant::Marker>(
     m: T,
     data: &'data gvariant::aligned_bytes::AlignedSlice<<T::Type as AlignOf>::AlignOf>,
@@ -264,7 +297,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
     T::Type: PartialEq<GLibVariant> + Debug + 'data,
     &'data T::Type: SerializeTo<T::Type>,
 {
-    let gvt = GLibVariantType::new(&std::str::from_utf8(T::TYPESTR).unwrap());
+    let gvt = GLibVariantType::from_marker(&m);
     let gv = GLibVariant::new(data, &gvt);
     let v = m.cast(data);
 
@@ -298,6 +331,16 @@ fn test_cmp<'data, T: gvariant::Marker>(
     }
 }
 
+fn fuzz_struct(data: &gvariant::aligned_bytes::AlignedSlice<A8>) {
+    let m = gv!("(sututysis)");
+
+    let gvt = GLibVariantType::from_marker(&m);
+    let t = m.cast(data).to_tuple();
+
+    let gv = GLibVariant::new(data, &gvt);
+    assert_eq!(t, gv);
+}
+
 fuzz_target!(|data: &[u8]| {
     let data_cow = copy_to_align::<A8>(data);
     let data = data_cow.as_ref();
@@ -322,4 +365,5 @@ fuzz_target!(|data: &[u8]| {
     test_cmp(gv!("mi"), data.as_aligned());
     test_cmp(gv!("ms"), data.as_aligned());
     test_cmp(gv!("may"), data.as_aligned());
+    fuzz_struct(data);
 });

@@ -65,7 +65,6 @@ fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
 
 ### TODO
 
-* Fuzz testing of structure types
 * Publish version 1.0
 * Fix or confirm inconsistencies with the GLib implementation discovered by
   fuzzing.

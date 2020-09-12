@@ -56,7 +56,6 @@
 //!
 //! ### TODO
 //!
-//! * Fuzz testing of structure types - compare against the GLib version
 //! * Serialization of structure types
 //! * Fuzz test serialization
 //!
