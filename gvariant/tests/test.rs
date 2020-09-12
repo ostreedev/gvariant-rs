@@ -276,9 +276,9 @@ fn test_non_normal_values() {
     assert_eq!(
         t,
         (
-            [3u8].as_ref(),
-            [2u8].as_ref(),
-            [1u8].as_ref(),
+            [].as_ref(),
+            [].as_ref(),
+            [].as_ref(),
             [].as_ref(),
             [].as_ref()
         )

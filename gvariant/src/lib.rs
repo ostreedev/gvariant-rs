@@ -58,6 +58,8 @@
 //!
 //! * Serialization of structure types
 //! * Fuzz test serialization
+//! * Ensure that deserialisation of non-normal structures matches GLib in all
+//!   cases.
 //!
 //! ## Features
 //!
@@ -129,9 +131,9 @@
 //!
 //! ### Data that overlaps framing offsets (non-normal form)
 //!
-//! This applies to arrays of non-fixed size type in non-normal form.  We follow
-//! the behaviour of GLib reference implementation rather than the GVariant spec
-//! in this instance.
+//! This applies to arrays of non-fixed size type in non-normal form and to
+//! structures in non-normal form.  We follow the behaviour of GLib reference
+//! implementation rather than the GVariant spec in this instance.
 //!
 //! The spec says:
 //!
@@ -146,6 +148,9 @@
 //! Whereas we give the child value the default value for the type consistent
 //! with the GLib implementation.  This is the behaviour in GLib since 2.60,
 //! 2.58.2 and 2.56.4.
+//!
+//! There are still some differences to GLib in the way we handle non-normal,
+//! non-fixed size structures.  These will be fixed.
 //!
 //! See [GNOME/glib#2121] for more information.
 //!
@@ -1754,17 +1759,18 @@ where
 {
     let osz = offset_size(data.len());
     let fo = nth_last_frame_offset(data, osz, (i + 1) as usize)?;
+    let data_end = usize::checked_sub(data.len(), osz as usize * n_frame_offsets)?;
 
     let start: aligned_bytes::AlignedOffset<ChildAlign> = align_offset::<B>(fo + a).into()
         + aligned_bytes::AlignedOffset::<ChildAlign>::try_new(c).unwrap();
     let end = if let Some(size) = size {
         start.to_usize() + size
     } else if last_child {
-        usize::checked_sub(data.len(), osz as usize * n_frame_offsets)?
+        data_end
     } else {
         nth_last_frame_offset(data, osz, (i + 2) as usize)?
     };
-    if start <= end && end <= data.len() {
+    if start <= end && end <= data_end {
         Some((start, end))
     } else {
         None
