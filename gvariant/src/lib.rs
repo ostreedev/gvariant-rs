@@ -705,9 +705,7 @@ impl SerializeTo<Str> for &Box<Str> {
 }
 impl SerializeTo<Str> for &String {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        f.write_all(self.as_bytes())?;
-        f.write_all(b"\0")?;
-        Ok(self.len() + 1)
+        self.as_str().serialize(f)
     }
 }
 impl PartialEq for Str {
