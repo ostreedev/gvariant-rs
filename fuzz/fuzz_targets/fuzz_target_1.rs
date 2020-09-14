@@ -337,6 +337,16 @@ fn fuzz_struct(data: &gvariant::aligned_bytes::AlignedSlice<A8>) {
     let gvt = GLibVariantType::from_marker(&m);
     let t = m.cast(data).to_tuple();
 
+    let reserialized = m.serialize_to_vec(&t);
+    let rs = copy_to_align(&reserialized);
+
+    // Whenever we serialise it should be in normal form
+    assert!(GLibVariant::new(&reserialized, &gvt).is_normal_form());
+
+    // Round trip this back to a tuple, it should be the same
+    let again = m.cast(rs.as_ref()).to_tuple();
+    assert_eq!(again, t);
+
     let gv = GLibVariant::new(data, &gvt);
     assert_eq!(t, gv);
 }

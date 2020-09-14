@@ -130,7 +130,28 @@ fn write_non_fixed_size_structure(
         tuple = tuple,
     )?;
 
+    let mut serialize_types = vec![];
+    let mut serialize_types2 = vec![];
+    let mut serialize_cmds = vec![];
+
+    // After a non-fixed size element we may need to include padding - and the
+    // amount of padding can't be determined until runtime.  For example with:
+    // (si) there will be up to 3B of padding after the s such that the i is 4B
+    // aligned.  Similarly for (sit), there may be either 4 or 0 bytes of
+    // padding between the i and the t such that the t is 8B aligned.
+    //
+    // However for (styi) we know that we're already 8B aligned when we reach
+    // the y, and after writing 1B for the y we're 8B aligned but with an offset
+    // of 1B, so we know at compile time that we need to write 7B of padding.
+    //
+    // base and offset keeps track of this for us.  base is our base alignment,
+    // either 1, 2, 4 or 8, and offset is the offset to that alignment.
+    let mut base = 8;
+    let mut offset = 0;
+    let mut nth_frame_offset = 0;
+
     for ((n, child), (i, a, b, c)) in children.iter().enumerate().zip(generate_table(children)) {
+        let last_child = n == children.len() - 1;
         writeln!(
             code,
             "
@@ -150,9 +171,49 @@ fn write_non_fixed_size_structure(
             b = b,
             c = c,
             child_size = size_of(child),
-            last_child = (n == children.len() - 1),
+            last_child = last_child,
             n_frame_offsets = n_frame_offsets
         )?;
+        if align_of(child) <= base {
+            // Statically known number of padding bytes
+            let old_offset = offset;
+            offset = align(offset, align_of(child));
+            let n_padding = offset - old_offset;
+            if n_padding > 0 {
+                serialize_cmds.push(format!("f.write_all(b\"{}\")?;", "\\0".repeat(n_padding)));
+                serialize_cmds.push(format!("off += {};", n_padding));
+            }
+        } else {
+            // Need to dynamically insert padding
+            offset = 0;
+            base = align_of(child);
+            serialize_cmds.push(format!("off += write_padding::<A{}, _>(off, f)?;", base));
+        }
+        match size_of(child) {
+            Some(x) => {
+                offset += x;
+                serialize_cmds.push(format!("self.{}.serialize(f)?;", n));
+                serialize_cmds.push(format!("off += {};", x));
+            }
+            None => {
+                base = 1;
+                offset = 0;
+                serialize_cmds.push(format!("off += self.{}.serialize(f)?;", n));
+                if !last_child {
+                    serialize_cmds.push(format!(
+                        "framing_offsets[{}] = off;",
+                        n_frame_offsets - nth_frame_offset - 1
+                    ));
+                    nth_frame_offset += 1;
+                }
+            }
+        }
+        serialize_types.push(format!(
+            "T{}: ::gvariant::SerializeTo<{}> + Copy",
+            n,
+            marker_type(&child)
+        ));
+        serialize_types2.push(format!("T{},", n));
     }
     writeln!(
         code,
@@ -168,13 +229,27 @@ fn write_non_fixed_size_structure(
         fn eq(&self, other: &Self) -> bool {{
             self.to_tuple() == other.to_tuple()
         }}
-    }}",
+    }}
+    impl<{serialize_types}> ::gvariant::SerializeTo<Structure{escaped}> for &({serialize_types2}) {{
+        fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {{
+            let mut off: usize = 0;
+            let mut framing_offsets : [usize; {n_frame_offsets}] = [0; {n_frame_offsets}];
+            {serialize_cmds}
+            off = write_offsets(off, &framing_offsets, f)?;
+            Ok(off)
+        }}
+    }}
+    ",
         escaped = escaped,
         tuple = types
             .iter()
             .map(|x| format!("&'a {}, ", x))
             .collect::<Vec<String>>()
-            .join("")
+            .join(""),
+        n_frame_offsets = n_frame_offsets,
+        serialize_types = serialize_types.join(", "),
+        serialize_types2 = serialize_types2.join(" "),
+        serialize_cmds = serialize_cmds.join("\n"),
     )?;
 
     Ok(())

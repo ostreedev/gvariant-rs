@@ -1,5 +1,6 @@
 use gvariant::aligned_bytes::{copy_to_align, empty_aligned, AsAligned};
 use gvariant::{gv, Marker, Structure};
+use ref_cast::RefCast;
 use std::collections::HashMap;
 
 #[test]
@@ -53,6 +54,72 @@ fn test_struct_serialisation() {
     let v = gv!("(yyyyi)").serialize_to_vec(&(6, 5, 4, 3, 87654321));
     assert_eq!(v, b"\x06\x05\x04\x03\xb1\x7f\x39\x05");
 
+    // (s) - Non fixed size
+    let v = gv!("(s)").serialize_to_vec(&("Hello!",));
+    assert_eq!(v, b"Hello!\0");
+
+    // (si) - Non fixed size ends with fixed aligned value
+    let v = gv!("(si)").serialize_to_vec(&("Hello!!", 87654321));
+    assert_eq!(v, b"Hello!!\0\xb1\x7f\x39\x05\x08");
+    let v = gv!("(si)").serialize_to_vec(&("Hello!", 87654321));
+    assert_eq!(v, b"Hello!\0\0\xb1\x7f\x39\x05\x07");
+    let v = gv!("(si)").serialize_to_vec(&("Hello", 87654321));
+    assert_eq!(v, b"Hello\0\0\0\xb1\x7f\x39\x05\x06");
+    let v = gv!("(si)").serialize_to_vec(&("Hell", 87654321));
+    assert_eq!(v, b"Hell\0\0\0\0\xb1\x7f\x39\x05\x05");
+
+    // (is) - Non fixed size starts with fixed aligned value
+    let v = gv!("(is)").serialize_to_vec(&(87654321, "Hello"));
+    assert_eq!(v, b"\xb1\x7f\x39\x05Hello\0");
+
+    // (isis) - 2 non-fixed size elements, 1 framing offset
+    let v = gv!("(isis)").serialize_to_vec(&(87654321, "Hello", 0x12345678, "Byee"));
+    assert_eq!(v, b"\xb1\x7f\x39\x05Hello\0\0\0\x78\x56\x34\x12Byee\0\x0a");
+
+    // (sisi) - 2 non-fixed size elements, 2 framing offsets
+    let v = gv!("(sisi)").serialize_to_vec(&("Hello", 87654321, "Byee", 0x12345678));
+    assert_eq!(
+        v,
+        b"Hello\0\0\0\xb1\x7f\x39\x05Byee\0\0\0\0\x78\x56\x34\x12\x11\x06"
+    );
+
+    // (sututy) - Complex aligment of fixed size elements at end - 2 dynamic alignments, 2 static padding
+    let mut input = (
+        "Hello",
+        0x1111_1111,
+        0x2222_2222_2222_2222,
+        0x3333_3333,
+        0x4444_4444_4444_4444,
+        0x55,
+    );
+    let v = gv!("(sututy)").serialize_to_vec(&input);
+    let expected: &[u8] =
+        b"Hello\0\0\0\x11\x11\x11\x11\0\0\0\0\x22\x22\x22\x22\x22\x22\x22\x22\x33\x33\x33\x33\0\0\0\0\x44\x44\x44\x44\x44\x44\x44\x44\x55\x06";
+    assert_eq!(&*v, expected);
+
+    // Removes the padding between the first u and the first t:
+    input.0 = "He";
+    let v = gv!("(sututy)").serialize_to_vec(&input);
+    let expected: &[u8] =
+        b"He\0\0\x11\x11\x11\x11\x22\x22\x22\x22\x22\x22\x22\x22\x33\x33\x33\x33\0\0\0\0\x44\x44\x44\x44\x44\x44\x44\x44\x55\x03";
+    assert_eq!(&*v, expected);
+
+    // Regression test
+    let empty = gvariant::Str::ref_cast(b"\0");
+    let m = gv!("(sututysis)");
+    let v = m.serialize_to_vec(&(
+        empty,
+        &0x11111111,
+        &0x2222222222222222,
+        &0x33333333,
+        &0x4444444444444444,
+        &0x55,
+        empty,
+        &0x66666666,
+        empty,
+    ));
+    let expected: &[u8] = b"\0\0\0\0\x11\x11\x11\x11\x22\x22\x22\x22\x22\x22\x22\x22\x33\x33\x33\x33\0\0\0\0\x44\x44\x44\x44\x44\x44\x44\x44\x55\0\0\0\x66\x66\x66\x66\0\x22\x01";
+    assert_eq!(&*v, expected);
 }
 
 #[test]
@@ -65,21 +132,26 @@ fn test_complex_types() {
     let buf = copy_to_align(
         b"hello\x00\x01\x02\x03\x04\x06world\x00\x04\x03\x02\x01\x06\x0b\x16my-dir\x00\x03\x14\x15\x92e5\x0b\x07\x0f\x18");
     let (files, dirs) = gv!("(a(say)a(sayay))").cast(buf.as_ref()).into();
-    let expected: &[(&str, &[u8])] = &[
-        ("hello", b"\x01\x02\x03\x04"),
-        ("world", b"\x04\x03\x02\x01"),
-    ];
+    let expected: (&[(&str, &[u8])], &[(&str, &[u8], &[u8])]) = (
+        &[
+            ("hello", b"\x01\x02\x03\x04"),
+            ("world", b"\x04\x03\x02\x01"),
+        ],
+        &[("my-dir", b"\x03\x14\x15\x92", b"\x65\x35")],
+    );
     assert_eq!(files.len(), 2);
-    assert_eq!(files[0].to_tuple().0, expected[0].0);
-    assert_eq!(files[0].to_tuple().1, expected[0].1);
-    assert_eq!(files[1].to_tuple().0, expected[1].0);
-    assert_eq!(files[1].to_tuple().1, expected[1].1);
+    assert_eq!(files[0].to_tuple().0, expected.0[0].0);
+    assert_eq!(files[0].to_tuple().1, expected.0[0].1);
+    assert_eq!(files[1].to_tuple().0, expected.0[1].0);
+    assert_eq!(files[1].to_tuple().1, expected.0[1].1);
 
     assert_eq!(dirs.len(), 1);
     let d = dirs[0].to_tuple();
-    assert_eq!(d.0, "my-dir");
-    assert_eq!(d.1, b"\x03\x14\x15\x92");
-    assert_eq!(d.2, b"\x65\x35");
+    assert_eq!(d.0, expected.1[0].0);
+    assert_eq!(d.1, expected.1[0].1);
+    assert_eq!(d.2, expected.1[0].2);
+    let reserialized = gv!("(a(say)a(sayay))").serialize_to_vec(&expected);
+    assert_eq!(*reserialized, **buf);
 
     let buf = copy_to_align(include_bytes!(
         "0bf6200211dd4fd63be6e9bc5c90bea645e2696c0117b05f83562081813a5b94.commit"
@@ -126,6 +198,7 @@ fn test_spec_examples() {
     let (s, i) = gv!("(si)").cast(data.as_ref()).to_tuple();
     assert_eq!(s, "foo");
     assert_eq!(*i, -1);
+    assert_eq!(*gv!("(si)").serialize_to_vec(&("foo", -1)), **data.as_ref());
 
     // Structure Array Example
     //
