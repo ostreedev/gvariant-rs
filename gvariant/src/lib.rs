@@ -1500,11 +1500,7 @@ where
     &'a GvT: SerializeTo<GvT>,
 {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        if let Some(x) = self.to_option() {
-            x.serialize(f)
-        } else {
-            Ok(0)
-        }
+        SerializeTo::<MaybeFixedSize<GvT>>::serialize(&self.to_option(), f)
     }
 }
 
@@ -1514,9 +1510,7 @@ where
 {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         if let Some(x) = self {
-            let len = x.serialize(f)?;
-            f.write_all(b"\0")?;
-            Ok(len + 1)
+            x.serialize(f)
         } else {
             Ok(0)
         }
