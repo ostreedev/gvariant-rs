@@ -682,7 +682,9 @@ impl SerializeTo<Str> for &str {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
         let b = self.as_bytes();
         if memchr::memchr(b'\0', b).is_some() {
-            // Can't encode strings with embedded NULs with GVariant
+            // GVariant can't represent strings with embedded NULs.  We don't
+            // want to silently encode something that won't round-trip, so fail
+            // here:
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Strings may not contain NULs",
