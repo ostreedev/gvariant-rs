@@ -66,6 +66,7 @@ fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
 ### TODO
 
 * Publish version 1.0
+* Benchmarking and performance improvements
 * Ensure that deserialisation of non-normal structures matches GLib in all
   cases.
 

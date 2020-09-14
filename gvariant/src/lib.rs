@@ -56,6 +56,7 @@
 //!
 //! ### TODO
 //!
+//! * Benchmarking and performance improvements
 //! * Ensure that deserialisation of non-normal structures matches GLib in all
 //!   cases.
 //!
