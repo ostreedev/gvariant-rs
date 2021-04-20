@@ -95,6 +95,7 @@ use core::{
 };
 #[cfg(feature = "std")]
 use std::io::IoSliceMut;
+use std::marker::PhantomData;
 
 /// A trait for our alignment structs [`A1`], [`A2`], [`A4`] and [`A8`].
 ///
@@ -143,7 +144,6 @@ unsafe impl Alignment for A1 {
 unsafe impl AlignedTo<A1> for A1 {}
 
 /// 2-byte alignment
-#[repr(align(2))]
 #[derive(Debug, Copy, Clone)]
 pub struct A2;
 unsafe impl Alignment for A2 {
@@ -153,7 +153,6 @@ unsafe impl AlignedTo<A1> for A2 {}
 unsafe impl AlignedTo<A2> for A2 {}
 
 /// 4-byte alignment
-#[repr(align(4))]
 #[derive(Debug, Copy, Clone)]
 pub struct A4;
 unsafe impl Alignment for A4 {
@@ -164,7 +163,6 @@ unsafe impl AlignedTo<A2> for A4 {}
 unsafe impl AlignedTo<A4> for A4 {}
 
 /// 8-byte alignment
-#[repr(align(8))]
 #[derive(Debug, Copy, Clone)]
 pub struct A8;
 unsafe impl Alignment for A8 {
@@ -217,14 +215,14 @@ pub trait TryAsAlignedMut<A: Alignment>: TryAsAligned<A> {
     fn try_as_aligned_mut(&mut self) -> Result<&mut AlignedSlice<A>, Misaligned>;
 }
 
-/// A byte array, but with a compile-time guaranteed minimum alignment
+/// A byte array, but tagged with GVariant alignment
 ///
 /// The aligment requirement is specfied by the type parameter A.  It will be
 /// [`A1`], [`A2`], [`A4`] or [`A8`].
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Eq)]
 pub struct AlignedSlice<A: Alignment> {
-    alignment: A,
+    alignment: PhantomData<A>,
     data: [u8],
 }
 
