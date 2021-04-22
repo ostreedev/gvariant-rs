@@ -252,7 +252,7 @@ use offset::align_offset;
 pub mod casting;
 mod offset;
 
-use aligned_bytes::{empty_aligned, AlignedSlice, AsAligned, A8};
+use aligned_bytes::{empty_aligned, AlignedSlice, Alignment, AsAligned, A8};
 use casting::{AlignOf, AllBitPatternsValid};
 
 #[doc(hidden)]
@@ -1115,11 +1115,11 @@ fn read_last_frame_offset(data: &[u8]) -> (OffsetSize, usize) {
 /// For fixed-width types a standard rust slice is used.
 #[derive(RefCast)]
 #[repr(transparent)]
-pub struct NonFixedWidthArray<T: Cast + ?Sized> {
-    data: AlignedSlice<T::AlignOf>,
+pub struct RawNonFixedWidthArray<A: Alignment + 'static> {
+    data: AlignedSlice<A>,
 }
 
-impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
+impl<A: Alignment> Debug for RawNonFixedWidthArray<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "[")?;
         for child in self {
@@ -1129,17 +1129,17 @@ impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
     }
 }
 #[cfg(feature = "alloc")]
-impl<T: Cast + ?Sized> ToOwned for NonFixedWidthArray<T> {
+impl<A: Alignment> ToOwned for RawNonFixedWidthArray<A> {
     type Owned = Box<Self>;
     fn to_owned(&self) -> Self::Owned {
         casting::ref_cast_box(self.data.to_owned())
     }
 }
-unsafe impl<T: Cast + ?Sized> AlignOf for NonFixedWidthArray<T> {
-    type AlignOf = T::AlignOf;
+unsafe impl<A: Alignment> AlignOf for RawNonFixedWidthArray<A> {
+    type AlignOf = A;
 }
-unsafe impl<T: Cast + ?Sized> AllBitPatternsValid for NonFixedWidthArray<T> {}
-impl<T: Cast + ?Sized> Cast for NonFixedWidthArray<T> {
+unsafe impl<A: Alignment> AllBitPatternsValid for RawNonFixedWidthArray<A> {}
+impl<A: Alignment + 'static> Cast for RawNonFixedWidthArray<A> {
     fn default_ref() -> &'static Self {
         Self::ref_cast(empty_aligned())
     }
@@ -1155,7 +1155,7 @@ impl<T: Cast + ?Sized> Cast for NonFixedWidthArray<T> {
     }
 }
 
-impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
+impl<A: Alignment + 'static> RawNonFixedWidthArray<A> {
     /// Returns the number of elements in the array.
     pub fn len(&self) -> usize {
         // Since determining the length of the array relies on our ability
@@ -1173,11 +1173,11 @@ impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
         self.len() == 0
     }
     /// Returns an iterator over the array.
-    pub fn iter(&self) -> NonFixedWidthArrayIterator<T> {
+    pub fn iter(&self) -> RawNonFixedWidthArrayIterator<A> {
         self.into_iter()
     }
     /// Returns the first element of the array, or [`None`] if it is empty.
-    pub fn first(&self) -> Option<&T> {
+    pub fn first(&self) -> Option<&AlignedSlice<A>> {
         if self.is_empty() {
             None
         } else {
@@ -1185,12 +1185,184 @@ impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
         }
     }
     /// Returns the last element of the array, or [`None`] if it is empty.
-    pub fn last(&self) -> Option<&T> {
+    pub fn last(&self) -> Option<&AlignedSlice<A>> {
         if self.is_empty() {
             None
         } else {
             Some(&self[self.len() - 1])
         }
+    }
+}
+
+impl<A: Alignment> PartialEq for RawNonFixedWidthArray<A> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        for (a, b) in self.iter().zip(other) {
+            if a != b {
+                return false;
+            }
+        }
+        true
+    }
+}
+impl<A: Alignment> Eq for RawNonFixedWidthArray<A> {}
+
+/// A iterator over the items of a [`NonFixedWidthArray`]
+///
+/// This struct is created by the [`iter`] method on [`NonFixedWidthArray`].
+/// See its documentation for more.
+///
+/// [`iter`]: NonFixedWidthArray::iter
+pub struct RawNonFixedWidthArrayIterator<'a, A: Alignment> {
+    data: &'a AlignedSlice<A>,
+    offsets: &'a [u8],
+
+    next_start: usize,
+    offset_idx: usize,
+    offset_size: OffsetSize,
+}
+
+impl<'a, A: Alignment + 'static> Iterator for RawNonFixedWidthArrayIterator<'a, A> {
+    type Item = &'a AlignedSlice<A>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.offset_idx >= self.offsets.len() {
+            None
+        } else {
+            let start = align_offset::<A>(self.next_start);
+            let end = read_uint(&self.offsets[self.offset_idx..], self.offset_size, 0);
+            self.offset_idx += self.offset_size as usize;
+            self.next_start = end;
+            if end < start || end > self.data.len() {
+                // If the framing offsets (or calculations based on them)
+                // indicate that any part of the byte sequence of a child value
+                // would fall outside of the byte sequence of the parent then
+                // the child is given the default value for its type.
+                Some(aligned_bytes::empty_aligned())
+            } else {
+                Some(&self.data[..end][start..])
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let l = match self.offset_size {
+            OffsetSize::U0 => 0,
+            _ => (self.offsets.len() - self.offset_idx) / self.offset_size as usize,
+        };
+        (l, Some(l))
+    }
+}
+
+impl<'a, A: Alignment + 'static> ExactSizeIterator for RawNonFixedWidthArrayIterator<'a, A> {}
+
+impl<'a, A: Alignment + 'static> IntoIterator for &'a RawNonFixedWidthArray<A> {
+    type Item = &'a AlignedSlice<A>;
+    type IntoIter = RawNonFixedWidthArrayIterator<'a, A>;
+    fn into_iter(self) -> Self::IntoIter {
+        let (osz, lfo) = read_last_frame_offset(&self.data);
+        let (data, offsets) = self.data.split_at(lfo);
+        Self::IntoIter {
+            data,
+            offsets,
+            next_start: 0,
+            offset_idx: 0,
+            offset_size: osz,
+        }
+    }
+}
+impl<A: Alignment + 'static> core::ops::Index<usize> for RawNonFixedWidthArray<A> {
+    type Output = AlignedSlice<A>;
+    fn index(&self, index: usize) -> &Self::Output {
+        let (osz, lfo) = read_last_frame_offset(&self.data);
+        let frame_offsets = &self.data.as_ref()[lfo..];
+        let end = read_uint(frame_offsets, osz, index);
+        let start = align_offset::<A>(match index {
+            0 => 0,
+            x => read_uint(frame_offsets, osz, x - 1),
+        });
+        if start < self.data.len() && end <= lfo && start <= end {
+            &self.data[..end][start..]
+        } else {
+            // Start or End Boundary of a Child Falls Outside the Container
+            //
+            // If the framing offsets (or calculations based on them) indicate
+            // that any part of the byte sequence of a child value would fall
+            // outside of the byte sequence of the parent then the child is given
+            // the default value for its type.
+            aligned_bytes::empty_aligned()
+        }
+    }
+}
+
+/// Type with same representation as GVariant "aX" type where X is any non-fixed
+/// size type
+///
+/// This is similar to a [`slice`][std::slice], but for non-fixed width types,
+/// and implements many of the same methods.  Items can be retrieved by indexing
+/// or iterated over.
+///
+/// For fixed-width types a standard rust slice is used.
+#[derive(RefCast)]
+#[repr(transparent)]
+pub struct NonFixedWidthArray<T: Cast + ?Sized>(RawNonFixedWidthArray<T::AlignOf>);
+
+impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "[")?;
+        for child in self {
+            write!(f, "{:?}, ", child)?;
+        }
+        write!(f, "]")
+    }
+}
+#[cfg(feature = "alloc")]
+impl<T: Cast + ?Sized> ToOwned for NonFixedWidthArray<T> {
+    type Owned = Box<Self>;
+    fn to_owned(&self) -> Self::Owned {
+        casting::ref_cast_box(self.0.to_owned())
+    }
+}
+unsafe impl<T: Cast + ?Sized> AlignOf for NonFixedWidthArray<T> {
+    type AlignOf = T::AlignOf;
+}
+unsafe impl<T: Cast + ?Sized> AllBitPatternsValid for NonFixedWidthArray<T> {}
+impl<T: Cast + ?Sized> Cast for NonFixedWidthArray<T> {
+    fn default_ref() -> &'static Self {
+        Self::ref_cast(RawNonFixedWidthArray::default_ref())
+    }
+    fn try_from_aligned_slice(
+        slice: &AlignedSlice<Self::AlignOf>,
+    ) -> Result<&Self, casting::WrongSize> {
+        RawNonFixedWidthArray::try_from_aligned_slice(slice).map(Self::ref_cast)
+    }
+    fn try_from_aligned_slice_mut(
+        slice: &mut AlignedSlice<Self::AlignOf>,
+    ) -> Result<&mut Self, casting::WrongSize> {
+        RawNonFixedWidthArray::try_from_aligned_slice_mut(slice).map(Self::ref_cast_mut)
+    }
+}
+
+impl<T: Cast + ?Sized> NonFixedWidthArray<T> {
+    /// Returns the number of elements in the array.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+    /// Returns `true` if the array has a length of 0.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    /// Returns an iterator over the array.
+    pub fn iter(&self) -> NonFixedWidthArrayIterator<T> {
+        self.into_iter()
+    }
+    /// Returns the first element of the array, or [`None`] if it is empty.
+    pub fn first(&self) -> Option<&T> {
+        self.0.first().map(T::from_aligned_slice)
+    }
+    /// Returns the last element of the array, or [`None`] if it is empty.
+    pub fn last(&self) -> Option<&T> {
+        self.0.last().map(T::from_aligned_slice)
     }
 }
 
@@ -1209,20 +1381,6 @@ impl<T: Cast + PartialEq + ?Sized> PartialEq for NonFixedWidthArray<T> {
 }
 impl<T: Cast + PartialEq + Eq + ?Sized> Eq for NonFixedWidthArray<T> {}
 
-/// A iterator over the items of a [`NonFixedWidthArray`]
-///
-/// This struct is created by the [`iter`] method on [`NonFixedWidthArray`].
-/// See its documentation for more.
-///
-/// [`iter`]: NonFixedWidthArray::iter
-pub struct NonFixedWidthArrayIterator<'a, Item: Cast + ?Sized> {
-    data: &'a AlignedSlice<Item::AlignOf>,
-    offsets: &'a [u8],
-
-    next_start: usize,
-    offset_idx: usize,
-    offset_size: OffsetSize,
-}
 impl<Item: Cast + ?Sized + PartialEq<T>, T: ?Sized> PartialEq<[&T]> for NonFixedWidthArray<Item> {
     fn eq(&self, other: &[&T]) -> bool {
         if self.len() != other.len() {
@@ -1241,33 +1399,22 @@ impl<Item: Cast + ?Sized + PartialEq<T>, T: ?Sized> PartialEq<NonFixedWidthArray
         other == self
     }
 }
+/// A iterator over the items of a [`NonFixedWidthArray`]
+///
+/// This struct is created by the [`iter`] method on [`NonFixedWidthArray`].
+/// See its documentation for more.
+///
+/// [`iter`]: NonFixedWidthArray::iter
+pub struct NonFixedWidthArrayIterator<'a, Item: Cast + ?Sized>(
+    RawNonFixedWidthArrayIterator<'a, Item::AlignOf>,
+);
 impl<'a, Item: Cast + 'static + ?Sized> Iterator for NonFixedWidthArrayIterator<'a, Item> {
     type Item = &'a Item;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.offset_idx >= self.offsets.len() {
-            None
-        } else {
-            let start = align_offset::<Item::AlignOf>(self.next_start);
-            let end = read_uint(&self.offsets[self.offset_idx..], self.offset_size, 0);
-            self.offset_idx += self.offset_size as usize;
-            self.next_start = end;
-            if end < start || end > self.data.len() {
-                // If the framing offsets (or calculations based on them)
-                // indicate that any part of the byte sequence of a child value
-                // would fall outside of the byte sequence of the parent then
-                // the child is given the default value for its type.
-                Some(Item::try_from_aligned_slice(aligned_bytes::empty_aligned()).unwrap())
-            } else {
-                Some(Item::try_from_aligned_slice(&self.data[..end][start..]).unwrap())
-            }
-        }
+        self.0.next().map(Item::from_aligned_slice)
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let l = match self.offset_size {
-            OffsetSize::U0 => 0,
-            _ => (self.offsets.len() - self.offset_idx) / self.offset_size as usize,
-        };
-        (l, Some(l))
+        self.0.size_hint()
     }
 }
 
@@ -1277,38 +1424,13 @@ impl<'a, Item: Cast + 'static + ?Sized> IntoIterator for &'a NonFixedWidthArray<
     type Item = &'a Item;
     type IntoIter = NonFixedWidthArrayIterator<'a, Item>;
     fn into_iter(self) -> Self::IntoIter {
-        let (osz, lfo) = read_last_frame_offset(&self.data);
-        let (data, offsets) = self.data.split_at(lfo);
-        NonFixedWidthArrayIterator {
-            data,
-            offsets,
-            next_start: 0,
-            offset_idx: 0,
-            offset_size: osz,
-        }
+        NonFixedWidthArrayIterator(self.0.into_iter())
     }
 }
 impl<Item: Cast + 'static + ?Sized> core::ops::Index<usize> for NonFixedWidthArray<Item> {
     type Output = Item;
     fn index(&self, index: usize) -> &Self::Output {
-        let (osz, lfo) = read_last_frame_offset(&self.data);
-        let frame_offsets = &self.data.as_ref()[lfo..];
-        let end = read_uint(frame_offsets, osz, index);
-        let start = align_offset::<Item::AlignOf>(match index {
-            0 => 0,
-            x => read_uint(frame_offsets, osz, x - 1),
-        });
-        if start < self.data.len() && end <= lfo && start <= end {
-            Item::try_from_aligned_slice(&self.data[..end][start..]).unwrap()
-        } else {
-            // Start or End Boundary of a Child Falls Outside the Container
-            //
-            // If the framing offsets (or calculations based on them) indicate
-            // that any part of the byte sequence of a child value would fall
-            // outside of the byte sequence of the parent then the child is given
-            // the default value for its type.
-            Item::try_from_aligned_slice(aligned_bytes::empty_aligned()).unwrap()
-        }
+        Item::from_aligned_slice(self.0.index(index))
     }
 }
 
