@@ -1,5 +1,6 @@
 #![no_main]
 
+use glib_sys::{g_variant_get_type, g_variant_type_get_string_length};
 use gvariant::{
     aligned_bytes::{copy_to_align, AsAligned, A8},
     casting::AlignOf,
@@ -7,6 +8,7 @@ use gvariant::{
     SerializeTo, Str, Structure, Variant,
 };
 use libfuzzer_sys::fuzz_target;
+use core::slice;
 use std::{
     ffi::{CStr, CString},
     fmt::Debug,
@@ -72,6 +74,13 @@ impl GLibVariant {
                 .unwrap()
         }
     }
+    fn get_type(&self) -> String {
+        let v = unsafe {
+            let ty = g_variant_get_type(self.variant);
+            slice::from_raw_parts(glib_sys::g_variant_type_peek_string(ty) as *const u8, g_variant_type_get_string_length(ty)).to_owned()
+        };
+        String::from_utf8(v).unwrap()
+    }
 }
 
 impl Drop for GLibVariant {
@@ -112,6 +121,7 @@ macro_rules! int_eq {
     ($i_ty:ty, $get:expr) => {
         impl PartialEq<GLibVariant> for $i_ty {
             fn eq(&self, rhs: &GLibVariant) -> bool {
+                assert!(Self::typestr_matches(rhs.get_type().as_bytes()));
                 *self == unsafe { $get(rhs.variant) }
             }
         }
