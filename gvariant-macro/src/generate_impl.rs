@@ -1,31 +1,47 @@
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 use std::io::Write;
 
 use crate::{marker_type, type_parser::GVariantType};
 
-pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
-    Ok(match spec {
+pub(crate) fn generate_types(spec: &GVariantType, seen: &mut HashSet<String>) -> Result<String, Box<dyn Error>> {
+    let ss = spec.to_string();
+    if seen.contains(&ss) {
+        return Ok("".to_owned());
+    } else {
+        seen.insert(ss);
+    }
+    let mut out = match spec {
         GVariantType::Tuple(children) => {
             let mut out = "".to_string();
             for child in children {
-                out += generate_types(child)?.as_ref();
+                out += generate_types(child, seen)?.as_ref();
             }
             out += generate_tuple(spec, children)?.as_ref();
             out
         }
         GVariantType::DictItem(children) => {
             let mut out = "".to_string();
-            out += generate_types(&children[0])?.as_ref();
-            out += generate_types(&children[1])?.as_ref();
+            out += generate_types(&children[0], seen)?.as_ref();
+            out += generate_types(&children[1], seen)?.as_ref();
             out += generate_tuple(spec, children.as_ref())?.as_ref();
             out
         }
-        GVariantType::A(x) => generate_types(x)?,
-        GVariantType::M(x) => generate_types(x)?,
+        GVariantType::A(x) => generate_types(x, seen)?,
+        GVariantType::M(x) => generate_types(x, seen)?,
 
         // Everything else is a builtin
         _ => "".to_owned(),
-    })
+    };
+    out += format!("
+        #[derive(Copy, Clone)]
+        pub(crate) struct Marker{typestr}();
+        impl ::gvariant::Marker for Marker{typestr} {{
+            type Type = {ty};
+            #[allow(clippy::string_lit_as_bytes)]
+            const TYPESTR: &'static [u8] = \"{spec}\".as_bytes();
+        }}
+    ", spec=spec, typestr=escape(spec.to_string()), ty=marker_type(spec)).as_ref();
+    Ok(out)
 }
 
 fn generate_tuple(
@@ -40,14 +56,15 @@ fn generate_tuple(
         write_non_fixed_size_structure(spec, children, &mut out)
     }?;
     write!(
-        out,
-        "impl std::fmt::Debug for Structure{} {{
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
-            std::fmt::Debug::fmt(&self.to_tuple(), f)
+        out, "
+        impl std::fmt::Debug for Structure{typestr} {{
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
+                std::fmt::Debug::fmt(&self.to_tuple(), f)
+            }}
         }}
-    }}",
-        escape(spec.to_string())
-    )?;
+    ",
+    typestr=escape(spec.to_string()),
+)?;
     Ok(String::from_utf8(out).unwrap())
 }
 

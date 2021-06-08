@@ -109,7 +109,8 @@ use std::marker::PhantomData;
 /// not implement this trait.  The implementations in this module should be the
 /// only implementations.
 pub unsafe trait Alignment: Debug {
-    const ALIGNMENT: usize;
+    const ALIGN_EXP: u8;
+    const ALIGNMENT: usize = 1 << Self::ALIGN_EXP;
 }
 /// This is a promise that the type is aligned as described by A.
 ///
@@ -139,7 +140,7 @@ pub unsafe trait AlignedTo<A: Alignment>: Alignment {}
 #[derive(Debug, Copy, Clone)]
 pub struct A1;
 unsafe impl Alignment for A1 {
-    const ALIGNMENT: usize = 1;
+    const ALIGN_EXP: u8 = 0;
 }
 unsafe impl AlignedTo<A1> for A1 {}
 
@@ -147,7 +148,7 @@ unsafe impl AlignedTo<A1> for A1 {}
 #[derive(Debug, Copy, Clone)]
 pub struct A2;
 unsafe impl Alignment for A2 {
-    const ALIGNMENT: usize = 2;
+    const ALIGN_EXP: u8 = 1;
 }
 unsafe impl AlignedTo<A1> for A2 {}
 unsafe impl AlignedTo<A2> for A2 {}
@@ -156,7 +157,7 @@ unsafe impl AlignedTo<A2> for A2 {}
 #[derive(Debug, Copy, Clone)]
 pub struct A4;
 unsafe impl Alignment for A4 {
-    const ALIGNMENT: usize = 4;
+    const ALIGN_EXP: u8 = 2;
 }
 unsafe impl AlignedTo<A1> for A4 {}
 unsafe impl AlignedTo<A2> for A4 {}
@@ -166,7 +167,7 @@ unsafe impl AlignedTo<A4> for A4 {}
 #[derive(Debug, Copy, Clone)]
 pub struct A8;
 unsafe impl Alignment for A8 {
-    const ALIGNMENT: usize = 8;
+    const ALIGN_EXP: u8 = 3;
 }
 unsafe impl AlignedTo<A1> for A8 {}
 unsafe impl AlignedTo<A2> for A8 {}
@@ -179,7 +180,7 @@ unsafe impl AlignedTo<A8> for A8 {}
 /// alignment as an argument to a function.  For example:
 ///
 ///     # use gvariant::aligned_bytes::{A2, AsAligned};
-
+///
 ///     fn foo(data : &impl AsAligned<A2>) {
 ///         let data = data.as_aligned();
 ///     # }

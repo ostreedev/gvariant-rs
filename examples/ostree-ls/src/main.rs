@@ -1,16 +1,36 @@
-use gvariant::{gv, Structure};
-use std::error::Error;
+use gvariant::{Cast, NonFixedWidthArray, Structure, aligned_bytes::AsAligned, decl_gv};
+use std::{io::Read, error::Error};
+
+decl_gv!(
+    type GVTreeMeta = "(a(say)a(sayay))";
+    type GVTreeFile = "(say)";
+    type GVTreeDir = "(sayay)";
+);
+
+#[repr(transparent)]
+#[derive(Debug,PartialEq)]
+struct TreeFile<'a>(<<gv_decls::MarkerCsay7 as gvariant::Marker>::Type as Structure<'a>>::RefTuple);
+
+#[derive(Clone, Copy, Debug)]
+struct DirTreeRef<'a>(<<GVTreeMeta as gvariant::Marker>::Type as Structure<'a>>::RefTuple);
+impl<'a> DirTreeRef<'a> {
+    fn cast(data: &'a [u8]) -> Self {
+        Self(GVTreeMeta::cast(data.as_aligned()).to_tuple())
+    }
+    fn dirs(self) -> NonFixedWidthArray<TreeFile<'a>> {
+        self.0.0.into_iter().map(|x| {let t = x.to_tuple(); (t.0.into(), t.1.into()) })
+    }
+}
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
     // Read the data into the buffer and interpret as an OSTree tree:
-    let tree = gv!("(a(say)a(sayay))").deserialize(std::fs::File::open(filename)?)?;
+    let mut buf = vec![];
+    std::fs::File::open(filename)?.read_to_end(&mut buf);
 
-    // (a(say)a(sayay)) is a structure, so tree implements gvariant::Structure,
-    // and we can turn it into a tuple:
-    let (files, dirs) = tree.to_tuple();
+    let tree = DirTreeRef::cast(buf.as_ref());
 
     // Print the contents
-    for s in dirs {
+    for s in tree.dirs() {
         let (filename, tree_checksum, meta_checksum) = s.to_tuple();
         println!(
             "{} {} {}/",

@@ -20,3 +20,4 @@ alloc = []
 ref-cast = "1.0"
 gvariant-macro = {path = "../gvariant-macro", version = "0.4.0"}
 memchr = { version = "2", default-features = false }
+bytemuck = "1"
