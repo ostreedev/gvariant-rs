@@ -360,7 +360,11 @@ fn fuzz_struct(data: &gvariant::aligned_bytes::AlignedSlice<A8>) {
     assert_eq!(again, t);
 
     let gv = GLibVariant::new(data, &gvt);
-    assert_eq!(t, gv);
+    if gv.is_normal_form() {
+        // For now we only match behaviour in normal form.  See
+        // https://gitlab.gnome.org/GNOME/glib/-/issues/2121
+        assert_eq!(t, gv);
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
