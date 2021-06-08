@@ -23,7 +23,9 @@ impl GLibVariantType {
         }
     }
     fn from_marker<M: Marker>(_: &M) -> GLibVariantType {
-        Self::new(std::str::from_utf8(M::TYPESTR).unwrap())
+        let mut v = vec![];
+        M::write_typestr(&mut v).unwrap();
+        Self::new(&std::str::from_utf8(&v).unwrap())
     }
 }
 impl Drop for GLibVariantType {
@@ -307,7 +309,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
 
     // Round-tripping serialization should give the same result:
     // println!("{:?} {:?}", reserialized.as_slice(), data.as_ref());
-    if T::TYPESTR != b"d" {
+    if T::typestr_matches(b"d") {
         // f64 doesn't implement Eq because of NaNs, so we only do this check
         // for non-f64s
         assert_eq!(m.cast(rs.as_ref()), v);
@@ -317,7 +319,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
     if gv.is_normal_form() {
         assert_eq!(*v, gv);
 
-        if data.len() >= 256 && data.len() < 512 && T::TYPESTR == b"aay" {
+        if data.len() >= 256 && data.len() < 512 && T::typestr_matches(b"aay") {
             // In theory there is exactly 1 normal form for data, but
             // `g_variant_is_normal_form` is buggy, so we can't do the check
             // from the else clause.  This performs a weaker version of that

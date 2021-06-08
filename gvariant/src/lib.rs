@@ -268,8 +268,20 @@ pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type};
 ///
 /// See the documentation of `gv!` for usage examples.
 pub trait Marker: Copy {
-    /// The typestr that was passed to the `gv!` macro.
-    const TYPESTR: &'static [u8];
+    /// The length of the typestr that was passed to the `gv!` macro in bytes.
+    const TYPESTR_LEN: usize;
+
+    /// Writes the typestr that was passed to the `gv!` macro into the provided buffer.  This
+    /// function will either return Ok(TYPESTR_LEN) or an I/O error.
+    ///
+    /// I'd prefer to have a function `fn typestr() -> [u8;Self::TYPESTR_LEN]`, but Rust doesn't
+    /// support this just yet.  Even better would be a const TYPESTR: str, but that would require
+    /// concatenating const strs in generics, which isn't supported either.
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<usize>;
+
+    /// Checks if the typestr provided in the buffer matches this typestr.  This is used for
+    /// unpacking Variants.
+    fn typestr_matches(buf: &[u8]) -> bool;
 
     /// This type has the same representation in memory as the GVariant type
     /// with the signature given by `Self::TYPESTR`, and implements `Cast` so it
@@ -453,6 +465,7 @@ macro_rules! gv {
     ($typestr:literal) => {{
         #[allow(unused_imports)]
         mod _m {
+            use std::io::Write;
             use $crate::aligned_bytes::{
                 align_offset, empty_aligned, AlignedOffset, AlignedSlice, AsAligned, A1, A2, A4, A8,
             };
@@ -462,10 +475,20 @@ macro_rules! gv {
             _define_gv!($typestr);
             #[derive(Copy, Clone)]
             pub(crate) struct Marker();
-            impl $crate::Marker for Marker {
-                type Type = _gv_type!($typestr);
+            impl Marker {
                 #[allow(clippy::string_lit_as_bytes)]
                 const TYPESTR: &'static [u8] = $typestr.as_bytes();
+            }
+            impl $crate::Marker for Marker {
+                type Type = _gv_type!($typestr);
+                const TYPESTR_LEN: usize = Self::TYPESTR.len();
+                fn typestr_matches(buf: &[u8]) -> bool {
+                    buf == Self::TYPESTR
+                }
+                fn write_typestr(f: &mut impl Write) -> std::io::Result<usize> {
+                    f.write_all(Self::TYPESTR)?;
+                    Ok(Self::TYPESTR.len())
+                }
             }
         }
         // TODO: I'd much rather that this macro returns a type, rather than
@@ -873,7 +896,7 @@ impl Variant {
         AlignedSlice<A8>: AsAligned<<M::Type as AlignOf>::AlignOf>,
     {
         let (typestr, data) = self.split();
-        if typestr == M::TYPESTR {
+        if M::typestr_matches(typestr) {
             Some(m.cast(data.as_aligned()))
         } else {
             None
@@ -966,10 +989,11 @@ impl PartialEq for Variant {
 pub struct VariantWrap<M: Marker, T: SerializeTo<M::Type>>(pub M, pub T);
 impl<M: Marker, T: SerializeTo<M::Type>> SerializeTo<Variant> for VariantWrap<M, T> {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        let len = self.0.serialize(self.1, f)?;
+        let mut len = self.0.serialize(self.1, f)?;
         f.write_all(b"\0")?;
-        f.write_all(M::TYPESTR)?;
-        Ok(len + 1 + M::TYPESTR.len())
+        len += 1;
+        len += M::write_typestr(f)?;
+        Ok(len)
     }
 }
 
