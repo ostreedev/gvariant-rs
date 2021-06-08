@@ -2,7 +2,7 @@
 //! fast reading of in-memory buffers.
 //!
 //! ```rust
-//! # use gvariant::{aligned_bytes::copy_to_align, gv, Marker};
+//! # use gvariant::{aligned_bytes::copy_to_align, gv};
 //! let data = copy_to_align(b"\x22\x00\x00\x00William\0");
 //! let (age, name) = gv!("(is)").cast(data.as_ref()).into();
 //! assert_eq!(
@@ -178,7 +178,7 @@
 //!
 //! So typically code might look like:
 //!
-//!     # use gvariant::{aligned_bytes::alloc_aligned, gv, Marker};
+//!     # use gvariant::{aligned_bytes::alloc_aligned, gv};
 //!     # use std::io::Read;
 //!     # fn a() -> std::io::Result<()> {
 //!     # let mut file = std::fs::File::open("")?;
@@ -258,6 +258,8 @@ use casting::{AlignOf, AllBitPatternsValid};
 #[doc(hidden)]
 pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type};
 
+
+
 /// This is the return type of the `gv!` macro.
 ///
 /// This acts as a kind of factory trait for GVariant types, creating them from
@@ -267,26 +269,12 @@ pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type};
 /// marker structs that implement this.  Use that instead.
 ///
 /// See the documentation of `gv!` for usage examples.
-pub trait Marker: Copy {
-    /// The length of the typestr that was passed to the `gv!` macro in bytes.
-    const TYPESTR_LEN: usize;
-
-    /// Writes the typestr that was passed to the `gv!` macro into the provided buffer.  This
-    /// function will either return Ok(TYPESTR_LEN) or an I/O error.
-    ///
-    /// I'd prefer to have a function `fn typestr() -> [u8;Self::TYPESTR_LEN]`, but Rust doesn't
-    /// support this just yet.  Even better would be a const TYPESTR: str, but that would require
-    /// concatenating const strs in generics, which isn't supported either.
-    fn write_typestr(f: &mut impl Write) -> std::io::Result<usize>;
-
-    /// Checks if the typestr provided in the buffer matches this typestr.  This is used for
-    /// unpacking Variants.
-    fn typestr_matches(buf: &[u8]) -> bool;
-
-    /// This type has the same representation in memory as the GVariant type
-    /// with the signature given by `Self::TYPESTR`, and implements `Cast` so it
-    /// can be created from appropriately aligned data.
-    type Type: Cast + ?Sized;
+#[derive(Debug)]
+pub struct Marker<T: AlignOf + Cast + ?Sized>(PhantomData<T>);
+impl<T: AlignOf + Cast + ?Sized> Marker<T> {
+    pub fn new() -> Self {
+        Self(PhantomData::<T> {})
+    }
 
     // I'd like to remove the `&self` argument as it isn't used, but see comment
     // below in macro_rules! gv
@@ -300,26 +288,26 @@ pub trait Marker: Copy {
     ///
     /// Example
     ///
-    ///     # use gvariant::{gv, Marker, Structure};
+    ///     # use gvariant::{gv, Structure};
     ///     # let aligned_data = gvariant::aligned_bytes::empty_aligned();
     ///     let (my_int, my_str) = gv!("(ias)").cast(aligned_data).to_tuple();
-    fn cast<'a>(&self, data: &'a AlignedSlice<<Self::Type as AlignOf>::AlignOf>) -> &'a Self::Type {
-        Self::Type::from_aligned_slice(data)
+    pub fn cast<'a>(&self, data: &'a AlignedSlice<<T as AlignOf>::AlignOf>) -> &'a T {
+        T::from_aligned_slice(data)
     }
 
     /// Cast `data` to the appropriate rust type `Self::Type` for the type
     /// string `Self::TYPESTR`.
-    fn try_cast_mut(
-        data: &mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
-    ) -> Result<&mut Self::Type, casting::WrongSize> {
-        Self::Type::try_from_aligned_slice_mut(data)
+    pub fn try_cast_mut(
+        data: &mut AlignedSlice<<T as AlignOf>::AlignOf>,
+    ) -> Result<&mut T, casting::WrongSize> {
+        T::try_from_aligned_slice_mut(data)
     }
 
     /// Read the data from r returning an owned deserialised GVariant object
     ///
     /// Example
     ///
-    ///     # use gvariant::{gv, Marker};
+    ///     # use gvariant::{gv};
     ///     # fn moo(myfile: &str) -> std::io::Result<()> {
     ///     # let myfile = "";
     ///     let v = gv!("s").deserialize(std::fs::File::open(myfile)?)?;
@@ -330,10 +318,7 @@ pub trait Marker: Copy {
     /// This requires the features std and alloc be enabled on the gvariant
     /// crate.
     #[cfg(feature = "std")]
-    fn deserialize(
-        &self,
-        r: impl std::io::Read,
-    ) -> std::io::Result<<Self::Type as ToOwned>::Owned> {
+    pub fn deserialize(&self, r: impl std::io::Read) -> std::io::Result<<T as ToOwned>::Owned> {
         let data = aligned_bytes::read_to_slice(r, None)?;
         Ok(self.cast(&*data).to_owned())
     }
@@ -349,12 +334,12 @@ pub trait Marker: Copy {
     ///
     /// Example
     ///
-    ///     # use gvariant::{gv, Marker};
+    ///     # use gvariant::{gv};
     ///     let v = gv!("s").from_bytes(b"An example string\0");
     ///     assert_eq!(&*v, "An example string");
     #[allow(clippy::wrong_self_convention)]
     #[cfg(feature = "alloc")]
-    fn from_bytes(&self, data: impl AsRef<[u8]>) -> <Self::Type as ToOwned>::Owned {
+    pub fn from_bytes(&self, data: impl AsRef<[u8]>) -> <T as ToOwned>::Owned {
         let cow = aligned_bytes::copy_to_align(data.as_ref());
         self.cast(cow.as_ref()).to_owned()
     }
@@ -366,7 +351,7 @@ pub trait Marker: Copy {
     ///
     /// Example
     ///
-    ///     # use gvariant::{gv, Marker};
+    ///     # use gvariant::{gv};
     ///     # fn m(mut myfile: impl std::io::Write) -> std::io::Result<()> {
     ///     let comment = Some("It's great!");
     ///     gv!("ms").serialize(&comment, &mut myfile)?;
@@ -375,9 +360,9 @@ pub trait Marker: Copy {
     ///
     /// For information on how to serialize to the variant type see [VariantWrap].
     #[cfg(feature = "std")]
-    fn serialize(
+    pub fn serialize(
         &self,
-        data: impl SerializeTo<Self::Type>,
+        data: impl SerializeTo<T>,
         out: &mut impl Write,
     ) -> std::io::Result<usize> {
         data.serialize(out)
@@ -388,13 +373,21 @@ pub trait Marker: Copy {
     /// Used by our tests.  You probably want to use the more flexible
     /// `serialize` instead which can be used to write to files/sockets.
     #[cfg(feature = "std")]
-    fn serialize_to_vec(&self, data: impl SerializeTo<Self::Type>) -> Vec<u8> {
+    pub fn serialize_to_vec(&self, data: impl SerializeTo<T>) -> Vec<u8> {
         let mut out = vec![];
         self.serialize(data, &mut out)
             .expect("Serialization to Vec should be infallible");
         out
     }
 }
+
+impl<T: AlignOf + Cast + ?Sized> Clone for Marker<T> {
+    fn clone(&self) -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: AlignOf + Cast + ?Sized> Copy for Marker<T> {}
 
 /// Trait to enable Serialization to GVariant
 ///
@@ -415,21 +408,21 @@ pub trait SerializeTo<T: Cast + ?Sized> {
 /// This `Marker` can then be used to cast data into that type by calling
 /// `Marker::cast`.
 ///
-/// The signature is essentially `fn gv(typestr : &str) -> impl Marker`.
+/// The signature is essentially `fn gv(typestr : &str) -> Marker<T>`.
 ///
 /// This is the main entrypoint to the library.
 ///
 /// Given `data` that you want to interpret as a GVariant of type **as** you
 /// write:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # use gvariant::{aligned_bytes::empty_aligned, gv};
 ///     # let data = empty_aligned();
 ///     gv!("as").cast(data);
 ///
 /// Similarly if you want to interpret some data in a variant as an **as** you
 /// write:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker, Variant};
+///     # use gvariant::{aligned_bytes::empty_aligned, gv, Variant};
 ///     # let v = gv!("v").cast(empty_aligned());
 ///     v.get(gv!("as"));
 ///
@@ -473,23 +466,7 @@ macro_rules! gv {
             use $crate::*;
 
             _define_gv!($typestr);
-            #[derive(Copy, Clone)]
-            pub(crate) struct Marker();
-            impl Marker {
-                #[allow(clippy::string_lit_as_bytes)]
-                const TYPESTR: &'static [u8] = $typestr.as_bytes();
-            }
-            impl $crate::Marker for Marker {
-                type Type = _gv_type!($typestr);
-                const TYPESTR_LEN: usize = Self::TYPESTR.len();
-                fn typestr_matches(buf: &[u8]) -> bool {
-                    buf == Self::TYPESTR
-                }
-                fn write_typestr(f: &mut impl Write) -> std::io::Result<usize> {
-                    f.write_all(Self::TYPESTR)?;
-                    Ok(Self::TYPESTR.len())
-                }
-            }
+            pub(crate) type M = $crate::_gv_type!($typestr);
         }
         // TODO: I'd much rather that this macro returns a type, rather than
         // a value.  That way getting a gvariant looks like:
@@ -507,7 +484,7 @@ macro_rules! gv {
         //
         // As it is, when I try to make this return a type I get the error
         // message
-        _m::Marker()
+        $crate::Marker::<_m::M>::new()
     }};
 }
 
@@ -533,6 +510,21 @@ pub fn write_padding<A: aligned_bytes::Alignment, W: Write>(
 pub trait Cast:
     casting::AlignOf + casting::AllBitPatternsValid + 'static + PartialEq + Debug + ToOwned
 {
+    /// The length of the typestr that was passed to the `gv!` macro in bytes.
+    const TYPESTR_LEN: usize;
+
+    /// Writes the typestr that was passed to the `gv!` macro into the provided buffer.  This
+    /// function will either return Ok(()) or an I/O error due to the Write implementation.
+    ///
+    /// I'd prefer to have a function `fn typestr() -> [u8;Self::TYPESTR_LEN]`, but Rust doesn't
+    /// support this just yet.  Even better would be a const TYPESTR: str, but that would require
+    /// concatenating const strs in generics, which isn't supported either.
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()>;
+
+    /// Checks if the typestr provided in the buffer matches this typestr.  This is used for
+    /// unpacking Variants.
+    fn typestr_matches(buf: &[u8]) -> bool;
+
     /// Cast `slice` to type `Self`.
     ///
     /// This always succeeds.  If the slice is the wrong size a defualt value is
@@ -560,8 +552,17 @@ pub trait Cast:
 }
 
 macro_rules! impl_cast_for {
-    ($t:ty, $default:expr) => {
+    ($t:ty, $typestr:literal, $default:expr) => {
         impl Cast for $t {
+            const TYPESTR_LEN: usize = $typestr.len();
+
+            fn typestr_matches(buf: &[u8]) -> bool {
+                buf == $typestr
+            }
+            fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+                f.write_all($typestr)
+            }
+
             fn default_ref() -> &'static Self {
                 &$default
             }
@@ -590,20 +591,20 @@ macro_rules! impl_cast_for {
     };
 }
 
-impl_cast_for!(u8, 0);
-impl_cast_for!(u16, 0);
-impl_cast_for!(i16, 0);
-impl_cast_for!(u32, 0);
-impl_cast_for!(i32, 0);
-impl_cast_for!(u64, 0);
-impl_cast_for!(i64, 0);
-impl_cast_for!(f64, 0.);
+impl_cast_for!(u8, b"y", 0);
+impl_cast_for!(u16, b"q", 0);
+impl_cast_for!(i16, b"n", 0);
+impl_cast_for!(u32, b"u", 0);
+impl_cast_for!(i32, b"i", 0);
+impl_cast_for!(u64, b"t", 0);
+impl_cast_for!(i64, b"x", 0);
+impl_cast_for!(f64, b"d", 0.);
 
 /// Type with same representation as GVariant "s", "o" and "g" types
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # use gvariant::{aligned_bytes::empty_aligned, gv};
 ///     # let data = empty_aligned();
 ///     gv!("s").cast(data);
 ///
@@ -622,6 +623,8 @@ impl ToOwned for Str {
     }
 }
 impl Str {
+    const TYPESTR: &'static str = "s";
+
     /// Convert `&Str` to `&[u8]`
     ///
     /// This will give the same result as `s.to_str().as_bytes()` for normal
@@ -681,6 +684,14 @@ unsafe impl AlignOf for Str {
 }
 
 impl Cast for Str {
+    const TYPESTR_LEN: usize = Self::TYPESTR.len();
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf == Self::TYPESTR.as_bytes()
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(Self::TYPESTR.as_bytes())
+    }
+
     fn default_ref() -> &'static Self {
         unsafe { &*(b"" as *const [u8] as *const Str) }
     }
@@ -838,6 +849,14 @@ unsafe impl AlignOf for Variant {
 }
 unsafe impl AllBitPatternsValid for Variant {}
 impl Cast for Variant {
+    const TYPESTR_LEN: usize = Self::TYPESTR.len();
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf == Self::TYPESTR.as_bytes()
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(Self::TYPESTR.as_bytes())
+    }
+
     fn default_ref() -> &'static Self {
         Self::ref_cast(empty_aligned())
     }
@@ -883,17 +902,19 @@ impl ToOwned for Variant {
 }
 
 impl Variant {
+    const TYPESTR: &'static str = "v";
+
     /// Get the value from the variant, if it matches the type passed in.
     ///
     /// Example:
     ///
-    ///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker, Variant};
+    ///     # use gvariant::{aligned_bytes::empty_aligned, gv, Variant};
     ///     # let v = gv!("v").cast(empty_aligned());
     ///     let a = v.get(gv!("ai"));
     ///     // a now has type &[i32]
-    pub fn get<M: Marker>(&self, m: M) -> Option<&M::Type>
+    pub fn get<M: Cast + ?Sized>(&self, m: Marker<M>) -> Option<&M>
     where
-        AlignedSlice<A8>: AsAligned<<M::Type as AlignOf>::AlignOf>,
+        AlignedSlice<A8>: AsAligned<<M as AlignOf>::AlignOf>,
     {
         let (typestr, data) = self.split();
         if M::typestr_matches(typestr) {
@@ -908,7 +929,7 @@ impl Variant {
     ///
     /// Example use:
     ///
-    ///     # use gvariant::{aligned_bytes::{A8, copy_to_align, empty_aligned}, gv, Variant, Marker};
+    ///     # use gvariant::{aligned_bytes::{A8, copy_to_align, empty_aligned}, gv, Variant};
     ///     # let data = copy_to_align::<A8>(b"a\0(is)");
     ///     # let data = data.as_ref();
     ///     # let v = gv!("v").cast(data);
@@ -930,6 +951,57 @@ impl Variant {
             (b"()", empty_aligned())
         }
     }
+    /// Mark a value to be serialised as type **v**
+    ///
+    /// GVariant has a variant type which can contain a value of any GVariant type.
+    /// This can be used to implment enums.  This is a wrapper type that helps
+    /// serialising to those types.
+    ///
+    /// For example:  Instead of serialising this as type **i**:
+    ///
+    ///     use gvariant::{gv, Variant};
+    ///     let x: i32 = 5;
+    ///     let serialized_i = gv!("i").serialize_to_vec(x);
+    ///
+    /// This code will serialised to a value of type **v** that contains a value of
+    /// type **i**:
+    ///
+    ///     # use gvariant::{gv, Variant};
+    ///     # let x: i32 = 5;
+    ///     let serialized_vi = gv!("v").serialize_to_vec(Variant::wrap(gv!("i"), x));
+    ///
+    /// Similarly you can wrap an **i** in a **v** in another **v**:
+    ///
+    ///     # use gvariant::{gv, Variant};
+    ///     # let x: i32 = 5;
+    ///     let serialized_vvi = gv!("v").serialize_to_vec(
+    ///         Variant::wrap(gv!("v"), Variant::wrap(gv!("i"), x)));
+    ///
+    /// Typically you'd represent rust enums as GVariant variants.  The best way to
+    /// serialize enums as variants is to implement `SerializeTo` for the enum.
+    /// Example:
+    ///
+    ///     # use gvariant::{gv, SerializeTo, Variant};
+    ///     enum MyEnum {
+    ///         Bool(bool),
+    ///         String(String),
+    ///     }
+    ///     impl SerializeTo<gvariant::Variant> for &MyEnum {
+    ///         fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
+    ///             match self {
+    ///                 MyEnum::Bool(x) => Variant::wrap(gv!("b"), x).serialize(f),
+    ///                 MyEnum::String(x) => Variant::wrap(gv!("s"), x).serialize(f),
+    ///             }
+    ///         }
+    ///     }
+    ///
+    /// A common type type seen in the wild is the "bag of properties" **a{sv}**.
+    pub fn wrap<M: Cast + ?Sized, T: SerializeTo<M>>(
+        _marker: Marker<M>,
+        data: T,
+    ) -> VariantWrap<M, T> {
+        VariantWrap(PhantomData::<M> {}, data)
+    }
 }
 
 impl PartialEq for Variant {
@@ -940,62 +1012,23 @@ impl PartialEq for Variant {
     }
 }
 
-/// Mark a value to be serialised as type **v**
-///
-/// GVariant has a variant type which can contain a value of any GVariant type.
-/// This can be used to implment enums.  This is a wrapper type that helps
-/// serialising to those types.
-///
-/// For example:  Instead of serialising this as type **i**:
-///
-///     use gvariant::{gv, Marker, VariantWrap};
-///     let x: i32 = 5;
-///     let serialized_i = gv!("i").serialize_to_vec(x);
-///
-/// This code will serialised to a value of type **v** that contains a value of
-/// type **i**:
-///
-///     # use gvariant::{gv, Marker, VariantWrap};
-///     # let x: i32 = 5;
-///     let serialized_vi = gv!("v").serialize_to_vec(VariantWrap(gv!("i"), x));
-///
-/// Similarly you can wrap an **i** in a **v** in another **v**:
-///
-///     # use gvariant::{gv, Marker, VariantWrap};
-///     # let x: i32 = 5;
-///     let serialized_vvi = gv!("v").serialize_to_vec(
-///         VariantWrap(gv!("v"), VariantWrap(gv!("i"), x)));
-///
-/// Typically you'd represent rust enums as GVariant variants.  The best way to
-/// serialize enums as variants is to implement `SerializeTo` for the enum.
-/// Example:
-///
-///     # use gvariant::{gv, Marker, SerializeTo, VariantWrap};
-///     enum MyEnum {
-///         Bool(bool),
-///         String(String),
-///     }
-///     impl SerializeTo<gvariant::Variant> for &MyEnum {
-///         fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
-///             match self {
-///                 MyEnum::Bool(x) => VariantWrap(gv!("b"), x).serialize(f),
-///                 MyEnum::String(x) => VariantWrap(gv!("s"), x).serialize(f),
-///             }
-///         }
-///     }
-///
-/// A common type type seen in the wild is the "bag of properties" **a{sv}**.
-#[derive(Debug, Copy, Clone)]
-pub struct VariantWrap<M: Marker, T: SerializeTo<M::Type>>(pub M, pub T);
-impl<M: Marker, T: SerializeTo<M::Type>> SerializeTo<Variant> for VariantWrap<M, T> {
+/// Return type for [Variant::wrap]
+#[derive(Debug)]
+pub struct VariantWrap<M: Cast + ?Sized, T: SerializeTo<M>>(pub PhantomData<M>, pub T);
+impl<M: Cast + ?Sized, T: SerializeTo<M>> SerializeTo<Variant> for VariantWrap<M, T> {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize> {
-        let mut len = self.0.serialize(self.1, f)?;
+        let len = self.1.serialize(f)?;
         f.write_all(b"\0")?;
-        len += 1;
-        len += M::write_typestr(f)?;
-        Ok(len)
+        M::write_typestr(f)?;
+        Ok(len + 1 + M::TYPESTR_LEN)
     }
 }
+impl<M: Cast + ?Sized, T: SerializeTo<M> + Clone> Clone for VariantWrap<M, T> {
+    fn clone(&self) -> Self {
+        Self(self.0, self.1.clone())
+    }
+}
+impl<M: Cast + ?Sized, T: SerializeTo<M> + Copy> Copy for VariantWrap<M, T> {}
 
 // #### 2.5.3.1 Fixed Width Arrays
 //
@@ -1010,8 +1043,16 @@ impl<M: Marker, T: SerializeTo<M::Type>> SerializeTo<Variant> for VariantWrap<M,
 // fixed-size values have a non-zero size.
 //
 // We implement this a normal rust slice.
-
 impl<'a, T: Cast + 'static + Copy> Cast for [T] {
+    const TYPESTR_LEN: usize = T::TYPESTR_LEN + 1;
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf.len() == Self::TYPESTR_LEN && buf[0] == b'a' && T::typestr_matches(&buf[1..])
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(b"a")?;
+        T::write_typestr(f)
+    }
+
     fn default_ref() -> &'static Self {
         &[]
     }
@@ -1163,21 +1204,6 @@ unsafe impl<A: Alignment> AlignOf for RawNonFixedWidthArray<A> {
     type AlignOf = A;
 }
 unsafe impl<A: Alignment> AllBitPatternsValid for RawNonFixedWidthArray<A> {}
-impl<A: Alignment + 'static> Cast for RawNonFixedWidthArray<A> {
-    fn default_ref() -> &'static Self {
-        Self::ref_cast(empty_aligned())
-    }
-    fn try_from_aligned_slice(
-        slice: &AlignedSlice<Self::AlignOf>,
-    ) -> Result<&Self, casting::WrongSize> {
-        Ok(Self::ref_cast(slice))
-    }
-    fn try_from_aligned_slice_mut(
-        slice: &mut AlignedSlice<Self::AlignOf>,
-    ) -> Result<&mut Self, casting::WrongSize> {
-        Ok(Self::ref_cast_mut(slice))
-    }
-}
 
 impl<A: Alignment + 'static> RawNonFixedWidthArray<A> {
     /// Returns the number of elements in the array.
@@ -1215,6 +1241,19 @@ impl<A: Alignment + 'static> RawNonFixedWidthArray<A> {
         } else {
             Some(&self[self.len() - 1])
         }
+    }
+    fn default_ref() -> &'static Self {
+        Self::ref_cast(empty_aligned())
+    }
+    fn try_from_aligned_slice(
+        slice: &AlignedSlice<A>,
+    ) -> Result<&Self, casting::WrongSize> {
+        Ok(Self::ref_cast(slice))
+    }
+    fn try_from_aligned_slice_mut(
+        slice: &mut AlignedSlice<A>,
+    ) -> Result<&mut Self, casting::WrongSize> {
+        Ok(Self::ref_cast_mut(slice))
     }
 }
 
@@ -1352,6 +1391,15 @@ unsafe impl<T: Cast + ?Sized> AlignOf for NonFixedWidthArray<T> {
 }
 unsafe impl<T: Cast + ?Sized> AllBitPatternsValid for NonFixedWidthArray<T> {}
 impl<T: Cast + ?Sized> Cast for NonFixedWidthArray<T> {
+    const TYPESTR_LEN: usize = T::TYPESTR_LEN + 1;
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf.len() == Self::TYPESTR_LEN && buf[0] == b'a' && T::typestr_matches(&buf[1..])
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(b"a")?;
+        T::write_typestr(f)
+    }
+
     fn default_ref() -> &'static Self {
         Self::ref_cast(RawNonFixedWidthArray::default_ref())
     }
@@ -1520,7 +1568,7 @@ pub fn write_offsets(
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # use gvariant::{aligned_bytes::empty_aligned, gv};
 ///     # let data = empty_aligned();
 ///     gv!("mb").cast(data);
 ///     # let data = empty_aligned();
@@ -1622,6 +1670,15 @@ unsafe impl<T: Cast> AlignOf for MaybeFixedSize<T> {
 unsafe impl<T: Cast> AllBitPatternsValid for MaybeFixedSize<T> {}
 
 impl<T: Cast> Cast for MaybeFixedSize<T> {
+    const TYPESTR_LEN: usize = T::TYPESTR_LEN + 1;
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf.len() == Self::TYPESTR_LEN && buf[0] == b'm' && T::typestr_matches(&buf[1..])
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(b"m")?;
+        T::write_typestr(f)
+    }
+
     fn default_ref() -> &'static Self {
         Self::ref_cast(empty_aligned())
     }
@@ -1672,7 +1729,7 @@ where
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker};
+///     # use gvariant::{aligned_bytes::empty_aligned, gv};
 ///     # let data = empty_aligned();
 ///     gv!("ms").cast(data);
 ///     # let data = empty_aligned();
@@ -1697,6 +1754,7 @@ impl<T: Cast + Debug + ?Sized> Debug for MaybeNonFixedSize<T> {
         self.to_option().fmt(f)
     }
 }
+
 #[cfg(feature = "alloc")]
 impl<T: Cast + ?Sized> ToOwned for MaybeNonFixedSize<T> {
     type Owned = Box<Self>;
@@ -1733,6 +1791,15 @@ unsafe impl<T: Cast + ?Sized> AlignOf for MaybeNonFixedSize<T> {
 unsafe impl<T: Cast + ?Sized> AllBitPatternsValid for MaybeNonFixedSize<T> {}
 
 impl<T: Cast + ?Sized> Cast for MaybeNonFixedSize<T> {
+    const TYPESTR_LEN: usize = T::TYPESTR_LEN + 1;
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf.len() == Self::TYPESTR_LEN && buf[0] == b'm' && T::typestr_matches(&buf[1..])
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(b"m")?;
+        T::write_typestr(f)
+    }
+
     fn default_ref() -> &'static Self {
         Self::ref_cast(empty_aligned())
     }
@@ -1798,7 +1865,7 @@ where
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::AsAligned, gv, Marker};
+///     # use gvariant::{aligned_bytes::AsAligned, gv};
 ///     gv!("b").cast(b"\0".as_aligned());
 ///
 /// Rust's built in [`bool`] doesn't have the same representation as GVariant's,
@@ -1809,11 +1876,20 @@ where
 #[repr(transparent)]
 pub struct Bool(u8);
 impl Bool {
+    const TYPESTR: &'static str = "b";
     pub fn to_bool(self) -> bool {
         self.0 > 0
     }
 }
 impl Cast for Bool {
+    const TYPESTR_LEN: usize = Self::TYPESTR.len();
+    fn typestr_matches(buf: &[u8]) -> bool {
+        buf == Self::TYPESTR.as_bytes()
+    }
+    fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {
+        f.write_all(Self::TYPESTR.as_bytes())
+    }
+
     fn default_ref() -> &'static Self {
         &Bool(0u8)
     }
@@ -2235,12 +2311,12 @@ mod tests {
         assert_ne!(non_normal, v);
 
         // Encode an **as** as a variant
-        let x = VariantWrap(gv!("as"), ["hello", "goodbye"].as_ref());
+        let x = Variant::wrap(gv!("as"), ["hello", "goodbye"].as_ref());
         let v = gv!("v").serialize_to_vec(x);
         assert_eq!(v, b"hello\0goodbye\0\x06\x0e\0as");
 
         // Wrap in another layer of variant
-        let xv = VariantWrap(gv!("v"), x);
+        let xv = Variant::wrap(gv!("v"), x);
         let vv = gv!("v").serialize_to_vec(xv);
         assert_eq!(vv, b"hello\0goodbye\0\x06\x0e\0as\0v");
 

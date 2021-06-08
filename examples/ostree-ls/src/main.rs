@@ -1,4 +1,4 @@
-use gvariant::{gv, Marker, Structure};
+use gvariant::{gv, Structure};
 use std::error::Error;
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {

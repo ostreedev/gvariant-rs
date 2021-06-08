@@ -87,6 +87,7 @@ fn write_non_fixed_size_structure(
         data: AlignedSlice<aligned_bytes::A{alignment}>,
     }}
     impl Structure{spec} {{
+        const TYPESTR : &'static str = \"{typestr}\";
         fn from_aligned_slice_mut(slice: &mut AlignedSlice<<Self as AlignOf>::AlignOf>) -> &mut Self {{
             // This is safe because Structure{spec} is repr(transparent) around
             // this same type:
@@ -101,6 +102,14 @@ fn write_non_fixed_size_structure(
         }}
     }}
     impl ::gvariant::Cast for Structure{spec} {{
+        const TYPESTR_LEN: usize = Self::TYPESTR.len();
+        fn typestr_matches(buf: &[u8]) -> bool {{
+            buf == Self::TYPESTR.as_bytes()
+        }}
+        fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {{
+            f.write_all(Self::TYPESTR.as_bytes())
+        }}
+
         fn default_ref() -> &'static Self {{
             let d = empty_aligned();
             // This is safe because Structure{spec} is repr(transparent) around
@@ -128,6 +137,7 @@ fn write_non_fixed_size_structure(
         spec = escaped,
         alignment = alignment,
         tuple = tuple,
+        typestr = spec.to_string(),
     )?;
 
     let mut serialize_types = vec![];
@@ -472,6 +482,7 @@ fn write_packed_struct(
             type AlignOf = ::gvariant::aligned_bytes::A{align};
         }}
         impl Structure{escaped} {{
+            const TYPESTR : &'static str = \"{typestr}\";
             pub const fn new({field_arglist}) -> Structure{escaped} {{
                 Structure{escaped} {{ {set_fields} }}
             }}
@@ -483,6 +494,14 @@ fn write_packed_struct(
             }}
         }}
         impl ::gvariant::Cast for Structure{escaped} {{
+            const TYPESTR_LEN: usize = Self::TYPESTR.len();
+            fn typestr_matches(buf: &[u8]) -> bool {{
+                buf == Self::TYPESTR.as_bytes()
+            }}
+            fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {{
+                f.write_all(Self::TYPESTR.as_bytes())
+            }}
+
             fn default_ref() -> &'static Self {{
                 static s : Structure{escaped} = Structure{escaped}::new({defaults});
                 &s
@@ -512,6 +531,7 @@ fn write_packed_struct(
         }}
         ",
         escaped = escaped,
+        typestr = gv.to_string(),
         align = align_of(gv),
         get_fields = get_fields.join(" "),
         field_arglist = field_arglist.join(", "),

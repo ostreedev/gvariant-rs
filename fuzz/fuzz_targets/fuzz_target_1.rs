@@ -3,8 +3,8 @@
 use gvariant::{
     aligned_bytes::{copy_to_align, AsAligned, A8},
     casting::AlignOf,
-    gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray, SerializeTo,
-    Str, Structure, Variant,
+    gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray,
+    SerializeTo, Str, Structure, Variant,
 };
 use libfuzzer_sys::fuzz_target;
 use std::{
@@ -22,7 +22,7 @@ impl GLibVariantType {
             ptr: unsafe { glib_sys::g_variant_type_new(cs.as_ptr()) },
         }
     }
-    fn from_marker<M: Marker>(_: &M) -> GLibVariantType {
+    fn from_marker<M: Cast + ?Sized>(_: Marker<M>) -> GLibVariantType {
         let mut v = vec![];
         M::write_typestr(&mut v).unwrap();
         Self::new(&std::str::from_utf8(&v).unwrap())
@@ -292,14 +292,14 @@ impl<
     }
 }
 
-fn test_cmp<'data, T: gvariant::Marker>(
-    m: T,
-    data: &'data gvariant::aligned_bytes::AlignedSlice<<T::Type as AlignOf>::AlignOf>,
+fn test_cmp<'data, M: gvariant::Cast + ?Sized>(
+    m: Marker<M>,
+    data: &'data gvariant::aligned_bytes::AlignedSlice<<M as AlignOf>::AlignOf>,
 ) where
-    T::Type: PartialEq<GLibVariant> + Debug + 'data,
-    &'data T::Type: SerializeTo<T::Type>,
+    M: PartialEq<GLibVariant> + Debug + 'data,
+    &'data M: SerializeTo<M>,
 {
-    let gvt = GLibVariantType::from_marker(&m);
+    let gvt = GLibVariantType::from_marker(m);
     let gv = GLibVariant::new(data, &gvt);
     let v = m.cast(data);
 
@@ -309,7 +309,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
 
     // Round-tripping serialization should give the same result:
     // println!("{:?} {:?}", reserialized.as_slice(), data.as_ref());
-    if T::typestr_matches(b"d") {
+    if !M::typestr_matches(b"d") {
         // f64 doesn't implement Eq because of NaNs, so we only do this check
         // for non-f64s
         assert_eq!(m.cast(rs.as_ref()), v);
@@ -319,7 +319,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
     if gv.is_normal_form() {
         assert_eq!(*v, gv);
 
-        if data.len() >= 256 && data.len() < 512 && T::typestr_matches(b"aay") {
+        if data.len() >= 256 && data.len() < 512 && M::typestr_matches(b"aay") {
             // In theory there is exactly 1 normal form for data, but
             // `g_variant_is_normal_form` is buggy, so we can't do the check
             // from the else clause.  This performs a weaker version of that
@@ -336,7 +336,7 @@ fn test_cmp<'data, T: gvariant::Marker>(
 fn fuzz_struct(data: &gvariant::aligned_bytes::AlignedSlice<A8>) {
     let m = gv!("(sututysis)");
 
-    let gvt = GLibVariantType::from_marker(&m);
+    let gvt = GLibVariantType::from_marker(m);
     let t = m.cast(data).to_tuple();
 
     let reserialized = m.serialize_to_vec(&t);

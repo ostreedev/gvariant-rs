@@ -1,5 +1,5 @@
 use gvariant::aligned_bytes::{copy_to_align, empty_aligned, AsAligned};
-use gvariant::{gv, Marker, Structure};
+use gvariant::{gv, Structure};
 use ref_cast::RefCast;
 use std::collections::HashMap;
 
