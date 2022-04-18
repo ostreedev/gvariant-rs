@@ -4,7 +4,7 @@ use glib_sys::{g_variant_get_type, g_variant_type_get_string_length};
 use gvariant::{
     aligned_bytes::{copy_to_align, AsAligned, A8},
     casting::AlignOf,
-    gv, Bool, Cast, Marker, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray,
+    decl_gv, gv, Bool, Cast, MaybeFixedSize, MaybeNonFixedSize, NonFixedWidthArray,
     SerializeTo, Str, Structure, Variant,
 };
 use libfuzzer_sys::fuzz_target;
@@ -24,7 +24,7 @@ impl GLibVariantType {
             ptr: unsafe { glib_sys::g_variant_type_new(cs.as_ptr()) },
         }
     }
-    fn from_marker<M: Cast + ?Sized>(_: Marker<M>) -> GLibVariantType {
+    fn from_marker<M: Cast + ?Sized>() -> GLibVariantType {
         let mut v = vec![];
         M::write_typestr(&mut v).unwrap();
         Self::new(&std::str::from_utf8(&v).unwrap())
@@ -303,18 +303,17 @@ impl<
 }
 
 fn test_cmp<'data, M: gvariant::Cast + ?Sized>(
-    m: Marker<M>,
     data: &'data gvariant::aligned_bytes::AlignedSlice<<M as AlignOf>::AlignOf>,
 ) where
     M: PartialEq<GLibVariant> + Debug + 'data,
     &'data M: SerializeTo<M>,
 {
-    let gvt = GLibVariantType::from_marker(m);
+    let gvt = GLibVariantType::from_marker::<M>();
     let gv = GLibVariant::new(data, &gvt);
-    let v = m.cast(data);
+    let v = M::from_aligned_slice(data);
 
     let mut reserialized = vec![];
-    m.serialize(v, &mut reserialized).unwrap();
+    v.serialize(&mut reserialized).unwrap();
     let rs = copy_to_align(&reserialized);
 
     // Round-tripping serialization should give the same result:
@@ -322,7 +321,7 @@ fn test_cmp<'data, M: gvariant::Cast + ?Sized>(
     if !M::typestr_matches(b"d") {
         // f64 doesn't implement Eq because of NaNs, so we only do this check
         // for non-f64s
-        assert_eq!(m.cast(rs.as_ref()), v);
+        assert_eq!(M::from_aligned_slice(rs.as_ref()), v);
     }
 
     //println!("{}: {:?} == {:?}", &std::str::from_utf8(T::TYPESTR).unwrap(), gv, v);
@@ -343,20 +342,25 @@ fn test_cmp<'data, M: gvariant::Cast + ?Sized>(
     }
 }
 
+decl_gv!{
+    type S = "(sututysis)";
+}
+
 fn fuzz_struct(data: &gvariant::aligned_bytes::AlignedSlice<A8>) {
-    let m = gv!("(sututysis)");
+    type M = gv!("(sututysis)");
 
-    let gvt = GLibVariantType::from_marker(m);
-    let t = m.cast(data).to_tuple();
+    let gvt = GLibVariantType::from_marker::<M>();
+    let t = M::from_aligned_slice(data).to_tuple();
 
-    let reserialized = m.serialize_to_vec(&t);
+    let mut reserialized = vec![];
+    t.serialize(&mut reserialized).unwrap();
     let rs = copy_to_align(&reserialized);
 
     // Whenever we serialise it should be in normal form
     assert!(GLibVariant::new(&reserialized, &gvt).is_normal_form());
 
     // Round trip this back to a tuple, it should be the same
-    let again = m.cast(rs.as_ref()).to_tuple();
+    let again = M::from_aligned_slice(rs.as_ref()).to_tuple();
     assert_eq!(again, t);
 
     let gv = GLibVariant::new(data, &gvt);
@@ -370,26 +374,26 @@ fn fuzz_struct(data: &gvariant::aligned_bytes::AlignedSlice<A8>) {
 fuzz_target!(|data: &[u8]| {
     let data_cow = copy_to_align::<A8>(data);
     let data = data_cow.as_ref();
-    test_cmp(gv!("b"), data.as_aligned());
-    test_cmp(gv!("y"), data.as_aligned());
-    test_cmp(gv!("n"), data.as_aligned());
-    test_cmp(gv!("q"), data.as_aligned());
-    test_cmp(gv!("i"), data.as_aligned());
-    test_cmp(gv!("u"), data.as_aligned());
-    test_cmp(gv!("x"), data.as_aligned());
-    test_cmp(gv!("t"), data.as_aligned());
-    test_cmp(gv!("d"), data.as_aligned());
-    test_cmp(gv!("s"), data.as_aligned());
-    test_cmp(gv!("o"), data.as_aligned());
-    test_cmp(gv!("g"), data.as_aligned());
-    test_cmp(gv!("v"), data.as_aligned());
-    test_cmp(gv!("ay"), data.as_aligned());
-    test_cmp(gv!("ai"), data.as_aligned());
-    test_cmp(gv!("as"), data.as_aligned());
-    test_cmp(gv!("aay"), data.as_aligned());
-    test_cmp(gv!("my"), data.as_aligned());
-    test_cmp(gv!("mi"), data.as_aligned());
-    test_cmp(gv!("ms"), data.as_aligned());
-    test_cmp(gv!("may"), data.as_aligned());
+    test_cmp::<gv!("b")>(data.as_aligned());
+    test_cmp::<gv!("y")>(data.as_aligned());
+    test_cmp::<gv!("n")>(data.as_aligned());
+    test_cmp::<gv!("q")>(data.as_aligned());
+    test_cmp::<gv!("i")>(data.as_aligned());
+    test_cmp::<gv!("u")>(data.as_aligned());
+    test_cmp::<gv!("x")>(data.as_aligned());
+    test_cmp::<gv!("t")>(data.as_aligned());
+    test_cmp::<gv!("d")>(data.as_aligned());
+    test_cmp::<gv!("s")>(data.as_aligned());
+    test_cmp::<gv!("o")>(data.as_aligned());
+    test_cmp::<gv!("g")>(data.as_aligned());
+    test_cmp::<gv!("v")>(data.as_aligned());
+    test_cmp::<gv!("ay")>(data.as_aligned());
+    test_cmp::<gv!("ai")>(data.as_aligned());
+    test_cmp::<gv!("as")>(data.as_aligned());
+    test_cmp::<gv!("aay")>(data.as_aligned());
+    test_cmp::<gv!("my")>(data.as_aligned());
+    test_cmp::<gv!("mi")>(data.as_aligned());
+    test_cmp::<gv!("ms")>(data.as_aligned());
+    test_cmp::<gv!("may")>(data.as_aligned());
     fuzz_struct(data);
 });

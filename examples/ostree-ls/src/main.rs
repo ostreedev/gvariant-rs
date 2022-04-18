@@ -1,4 +1,4 @@
-use gvariant::{Cast, NonFixedWidthArray, Structure, aligned_bytes::AsAligned, decl_gv};
+use gvariant::{Cast, NonFixedWidthArray, Structure, aligned_bytes::AsAligned, casting::AlignOf, decl_gv};
 use std::{io::Read, error::Error};
 
 decl_gv!(
@@ -9,40 +9,78 @@ decl_gv!(
 
 #[repr(transparent)]
 #[derive(Debug,PartialEq)]
-struct TreeFile<'a>(<<gv_decls::MarkerCsay7 as gvariant::Marker>::Type as Structure<'a>>::RefTuple);
+struct TreeFile<'a>(<GVTreeFile as Structure<'a>>::RefTuple);
+impl<'a> TreeFile<'a> {
+    fn filename(&self) -> &'a str {
+        self.0.0.to_str()
+    }
+    fn checksum(&self) -> &'a [u8] {
+        self.0.1
+    }
+}
+impl<'a> From<&'a GVTreeFile> for TreeFile<'a> {
+    fn from(x: &'a GVTreeFile) -> Self {
+        TreeFile(x.to_tuple())
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug,PartialEq)]
+struct TreeDir<'a>(<GVTreeDir as Structure<'a>>::RefTuple);
+
+impl<'a> TreeDir<'a> {
+    fn filename(&self) -> &'a str {
+        self.0.0.to_str()
+    }
+    fn tree_checksum(&self) -> &'a [u8] {
+        self.0.1
+    }
+    fn meta_checksum(&self) -> &'a [u8] {
+        self.0.2
+    }
+}
+impl<'a> From<&'a GVTreeDir> for TreeDir<'a> {
+    fn from(x: &'a GVTreeDir) -> Self {
+        Self(x.to_tuple())
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
-struct DirTreeRef<'a>(<<GVTreeMeta as gvariant::Marker>::Type as Structure<'a>>::RefTuple);
+struct DirTreeRef<'a>(<GVTreeMeta as Structure<'a>>::RefTuple);
 impl<'a> DirTreeRef<'a> {
-    fn cast(data: &'a [u8]) -> Self {
-        Self(GVTreeMeta::cast(data.as_aligned()).to_tuple())
+    fn files(self) -> impl Iterator<Item = TreeFile<'a>> {
+        self.0.0.into_iter().map(|x| x.into())
     }
-    fn dirs(self) -> NonFixedWidthArray<TreeFile<'a>> {
-        self.0.0.into_iter().map(|x| {let t = x.to_tuple(); (t.0.into(), t.1.into()) })
+    fn dirs(self) -> impl Iterator<Item = TreeDir<'a>> {
+        self.0.1.into_iter().map(|x| x.into())
+    }
+}
+
+impl<'a> From<&'a GVTreeMeta> for DirTreeRef<'a> {
+    fn from(x: &'a GVTreeMeta) -> Self {
+        Self(x.to_tuple())
     }
 }
 
 fn ostree_ls(filename: &std::path::Path) -> Result<(), Box<dyn Error>> {
     // Read the data into the buffer and interpret as an OSTree tree:
     let mut buf = vec![];
-    std::fs::File::open(filename)?.read_to_end(&mut buf);
+    std::fs::File::open(filename)?.read_to_end(&mut buf).unwrap();
 
-    let tree = DirTreeRef::cast(buf.as_ref());
+    let tree : DirTreeRef = GVTreeMeta::from_aligned_slice(buf.as_aligned()).into();
 
     // Print the contents
     for s in tree.dirs() {
-        let (filename, tree_checksum, meta_checksum) = s.to_tuple();
         println!(
             "{} {} {}/",
-            hex::encode(tree_checksum),
-            hex::encode(meta_checksum),
-            filename
+            hex::encode(s.tree_checksum()),
+            hex::encode(s.meta_checksum()),
+            s.filename()
         )
     }
 
-    for f in files {
-        let (filename, checksum) = f.to_tuple();
-        println!("{} {}", hex::encode(checksum), filename)
+    for f in tree.files() {
+        println!("{} {}", hex::encode(f.checksum()), f.filename())
     }
     Ok(())
 }

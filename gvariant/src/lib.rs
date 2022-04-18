@@ -2,9 +2,11 @@
 //! fast reading of in-memory buffers.
 //!
 //! ```rust
-//! # use gvariant::{aligned_bytes::copy_to_align, gv};
+//! # use gvariant::{aligned_bytes::copy_to_align, Cast, decl_gv, gv};
+//! // Structure types need to be pre-declared:
+//! decl_gv!{type Is = "(is)"};
 //! let data = copy_to_align(b"\x22\x00\x00\x00William\0");
-//! let (age, name) = gv!("(is)").cast(data.as_ref()).into();
+//! let (age, name) = <gv!("(is)")>::from_aligned_slice(data.as_ref()).into();
 //! assert_eq!(
 //!     format!("My name is {} and I am {} years old!", name, age),
 //!     "My name is William and I am 34 years old!");
@@ -178,13 +180,14 @@
 //!
 //! So typically code might look like:
 //!
-//!     # use gvariant::{aligned_bytes::alloc_aligned, gv};
+//!     # use gvariant::{aligned_bytes::alloc_aligned, Cast, decl_gv, gv};
 //!     # use std::io::Read;
+//!     decl_gv!{type S = "(sia{sv})"};
 //!     # fn a() -> std::io::Result<()> {
 //!     # let mut file = std::fs::File::open("")?;
 //!     let mut buf = alloc_aligned(4096);
 //!     let len = file.read(&mut buf)?;
-//!     let data = gv!("a(sia{sv})").cast(&buf[..len]);
+//!     let data = <gv!("a(sia{sv})")>::from_aligned_slice(&buf[..len]);
 //!     # todo!()
 //!     # }
 //!
@@ -257,134 +260,7 @@ use aligned_bytes::{A8, AlignedSlice, Alignment, AsAligned, empty_aligned};
 use casting::{AlignOf, AllBitPatternsValid};
 
 #[doc(hidden)]
-pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type, gv_marker as _gv_marker, reference_gv as _reference_gv};
-
-
-
-/// This is the return type of the `gv!` macro.
-///
-/// This acts as a kind of factory trait for GVariant types, creating them from
-/// aligned data using the `cast` method.
-///
-/// Do not implement this trait yourself, `gv!` is responsible for creating the
-/// marker structs that implement this.  Use that instead.
-///
-/// See the documentation of `gv!` for usage examples.
-#[derive(Debug)]
-pub struct Marker<T: AlignOf + Cast + ?Sized>(PhantomData<T>);
-impl<T: AlignOf + Cast + ?Sized> Marker<T> {
-    pub fn new() -> Self {
-        Self(PhantomData::<T> {})
-    }
-
-    /// Cast `data` to the appropriate rust type `Self::Type` for the type
-    /// string `Self::TYPESTR`.
-    ///
-    /// Use this in preference to `deserialize` if you already have the data in
-    /// (properly aligned) memory.  This makes no allocations and has no
-    /// dependency on `std` or `alloc`.
-    ///
-    /// Example
-    ///
-    ///     # use gvariant::{gv, Structure};
-    ///     # let aligned_data = gvariant::aligned_bytes::empty_aligned();
-    ///     let (my_int, my_str) = gv!("(ias)").cast(aligned_data).to_tuple();
-    pub fn cast<'a>(data: &'a AlignedSlice<<T as AlignOf>::AlignOf>) -> &'a T {
-        T::from_aligned_slice(data)
-    }
-
-    /// Cast `data` to the appropriate rust type `Self::Type` for the type
-    /// string `Self::TYPESTR`.
-    pub fn try_cast_mut(
-        data: &mut AlignedSlice<<T as AlignOf>::AlignOf>,
-    ) -> Result<&mut T, casting::WrongSize> {
-        T::try_from_aligned_slice_mut(data)
-    }
-
-    /// Read the data from r returning an owned deserialised GVariant object
-    ///
-    /// Example
-    ///
-    ///     # use gvariant::{gv};
-    ///     # fn moo(myfile: &str) -> std::io::Result<()> {
-    ///     # let myfile = "";
-    ///     let v = gv!("s").deserialize(std::fs::File::open(myfile)?)?;
-    ///     assert_eq!(&*v, "An example string");
-    ///     # Ok(())
-    ///     # }
-    ///
-    /// This requires the features std and alloc be enabled on the gvariant
-    /// crate.
-    #[cfg(feature = "std")]
-    pub fn deserialize(r: impl std::io::Read) -> std::io::Result<<T as ToOwned>::Owned> {
-        let data = aligned_bytes::read_to_slice(r, None)?;
-        Ok(Self::cast(&*data).to_owned())
-    }
-
-    /// Deserialise the given `data`, making a copy in the process.
-    ///
-    /// This is a convenience API wrapper around `copy_to_align` and `cast`
-    /// allowing users to not have to think about the alignment of their data.
-    /// It is usually better to ensure the data you have is aligned, for example
-    /// using `alloc_aligned` or `read_to_slice`, and then use `cast` directly.
-    /// This way you can avoid additional allocations, avoid additional copying,
-    /// and work in noalloc contexts.
-    ///
-    /// Example
-    ///
-    ///     # use gvariant::{gv};
-    ///     let v = gv!("s").from_bytes(b"An example string\0");
-    ///     assert_eq!(&*v, "An example string");
-    #[allow(clippy::wrong_self_convention)]
-    #[cfg(feature = "alloc")]
-    pub fn from_bytes(data: impl AsRef<[u8]>) -> <T as ToOwned>::Owned {
-        let cow = aligned_bytes::copy_to_align(data.as_ref());
-        Self::cast(cow.as_ref()).to_owned()
-    }
-
-    /// Serialize the data to the given stream as a GVariant
-    ///
-    /// To be serialized as a GVariant the passed type must implement
-    /// `SerializeTo<>` for the relevant GVariant type.
-    ///
-    /// Example
-    ///
-    ///     # use gvariant::{gv};
-    ///     # fn m(mut myfile: impl std::io::Write) -> std::io::Result<()> {
-    ///     let comment = Some("It's great!");
-    ///     gv!("ms").serialize(&comment, &mut myfile)?;
-    ///     # Ok(())
-    ///     # }
-    ///
-    /// For information on how to serialize to the variant type see [VariantWrap].
-    #[cfg(feature = "std")]
-    pub fn serialize(
-        data: impl SerializeTo<T>,
-        out: &mut impl Write,
-    ) -> std::io::Result<usize> {
-        data.serialize(out)
-    }
-
-    /// Convenience method for in-memory serialization
-    ///
-    /// Used by our tests.  You probably want to use the more flexible
-    /// `serialize` instead which can be used to write to files/sockets.
-    #[cfg(feature = "std")]
-    pub fn serialize_to_vec(data: impl SerializeTo<T>) -> Vec<u8> {
-        let mut out = vec![];
-        Self::serialize(data, &mut out)
-            .expect("Serialization to Vec should be infallible");
-        out
-    }
-}
-
-impl<T: AlignOf + Cast + ?Sized> Clone for Marker<T> {
-    fn clone(&self) -> Self {
-        Self(PhantomData)
-    }
-}
-
-impl<T: AlignOf + Cast + ?Sized> Copy for Marker<T> {}
+pub use gvariant_macro::{define_gv as _define_gv, gv_type as _gv_type, reference_gv as _reference_gv};
 
 /// Trait to enable Serialization to GVariant
 ///
@@ -412,16 +288,16 @@ pub trait SerializeTo<T: Cast + ?Sized> {
 /// Given `data` that you want to interpret as a GVariant of type **as** you
 /// write:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv};
+///     # use gvariant::{aligned_bytes::empty_aligned, Cast, gv};
 ///     # let data = empty_aligned();
-///     gv!("as").cast(data);
+///     <gv!("as")>::from_aligned_slice(data);
 ///
 /// Similarly if you want to interpret some data in a variant as an **as** you
 /// write:
 ///
 ///     # use gvariant::{aligned_bytes::empty_aligned, gv, Variant};
-///     # let v = gv!("v").cast(empty_aligned());
-///     v.get(gv!("as"));
+///     # let v = <gv!("v")>::from_aligned_slice(empty_aligned());
+///     v.get::<gv!("as")>();
 ///
 /// The returned marker has a automatically generated type.  `Marker::TYPESTR`
 /// will equal the typestr passed into the `gv!` invocation.  `Marker::Type` is
@@ -452,37 +328,9 @@ pub trait SerializeTo<T: Cast + ?Sized> {
 /// | **{si}**      | Custom struct generated by this Macro. Implements `.to_tuple()` method                      | Yes if all children are [`Sized`] |
 #[macro_export]
 macro_rules! gv {
-    ($typestr:literal) => {{
-        #[allow(unused_imports)]
-        mod _m {
-            use std::io::Write;
-            use $crate::aligned_bytes::{
-                align_offset, empty_aligned, AlignedOffset, AlignedSlice, AsAligned, A1, A2, A4, A8,
-            };
-            use $crate::casting::{AlignOf, AllBitPatternsValid};
-            use $crate::*;
-
-            _define_gv!($typestr);
-            pub(crate) type M = $crate::_gv_type!($typestr);
-        }
-        // TODO: I'd much rather that this macro returns a type, rather than
-        // a value.  That way getting a gvariant looks like:
-        //
-        //     let a : <gv!("as")> = v.get()?
-        //     let b = <gv!("(yii)")>::cast(bytes);
-        //
-        // rather than:
-        //
-        //     let a = v.get(gv!("as"))?
-        //     let b = gv!("(yii)").cast(bytes);
-        //
-        // The former makes it much clearer what's happening at compile time
-        // and what's happening at run time.
-        //
-        // As it is, when I try to make this return a type I get the error
-        // message
-        $crate::Marker::<_m::M>::new()
-    }};
+    ($typestr:literal) => {
+        $crate::_gv_type!($typestr)
+    };
 }
 
 extern crate self as gvariant;
@@ -620,9 +468,9 @@ impl_cast_for!(f64, b"d", 0.);
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv};
+///     # use gvariant::{aligned_bytes::empty_aligned, Cast, gv};
 ///     # let data = empty_aligned();
-///     gv!("s").cast(data);
+///     <gv!("s")>::from_aligned_slice(data);
 ///
 /// We can't use Rust's `str` type here because GVariant strings always end with
 /// a NUL byte.
@@ -924,8 +772,8 @@ impl Variant {
     ///
     /// Example:
     ///
-    ///     # use gvariant::{aligned_bytes::empty_aligned, gv, Marker, Variant};
-    ///     # let v = <gv!("v")>::cast(empty_aligned());
+    ///     # use gvariant::{aligned_bytes::empty_aligned, Cast, gv, Variant};
+    ///     # let v = <gv!("v")>::from_aligned_slice(empty_aligned());
     ///     let a = v.get::<gv!("ai")>();
     ///     // a now has type &[i32]
     pub fn get<M: Cast + ?Sized>(&self) -> Option<&M>
@@ -934,7 +782,7 @@ impl Variant {
     {
         let (typestr, data) = self.split();
         if M::typestr_matches(typestr) {
-            Some(M::cast(data.as_aligned()))
+            Some(M::from_aligned_slice(data.as_aligned()))
         } else {
             None
         }
@@ -945,13 +793,14 @@ impl Variant {
     ///
     /// Example use:
     ///
-    ///     # use gvariant::{aligned_bytes::{A8, copy_to_align, empty_aligned}, gv, Variant};
+    ///     # use gvariant::{aligned_bytes::{A8, copy_to_align, empty_aligned}, Cast, decl_gv, gv, Variant};
+    ///     # decl_gv!{type Is = "(is)"};
     ///     # let data = copy_to_align::<A8>(b"a\0(is)");
     ///     # let data = data.as_ref();
-    ///     # let v = gv!("v").cast(data);
+    ///     # let v = <gv!("v")>::from_aligned_slice(data);
     ///     match v.split() {
     ///         (b"(is)", _) => {
-    ///             let s = v.get(gv!("(is)"));
+    ///             let s = v.get::<gv!("(is)")>();
     ///             // Do something with s
     ///         }
     ///         (ty, _) => panic!("Unexpected variant type {:?}", ty)
@@ -975,23 +824,26 @@ impl Variant {
     ///
     /// For example:  Instead of serialising this as type **i**:
     ///
-    ///     use gvariant::{gv, Variant};
+    ///     use gvariant::{gv, SerializeTo, Variant};
     ///     let x: i32 = 5;
-    ///     let serialized_i = gv!("i").serialize_to_vec(x);
+    ///     let mut v = vec![];
+    ///     <gv!("i")>::serialize(x, &mut v);
     ///
     /// This code will serialised to a value of type **v** that contains a value of
     /// type **i**:
     ///
-    ///     # use gvariant::{gv, Variant};
+    ///     # use gvariant::{gv, SerializeTo, Variant};
     ///     # let x: i32 = 5;
-    ///     let serialized_vi = gv!("v").serialize_to_vec(Variant::wrap(gv!("i"), x));
+    ///     let mut v = vec![];
+    ///     <gv!("v")>::serialize(Variant::wrap::<gv!("i"), _>(x), &mut v)?;
     ///
     /// Similarly you can wrap an **i** in a **v** in another **v**:
     ///
-    ///     # use gvariant::{gv, Variant};
+    ///     # use gvariant::{gv, SerializeTo, Variant};
     ///     # let x: i32 = 5;
-    ///     let serialized_vvi = gv!("v").serialize_to_vec(
-    ///         Variant::wrap(gv!("v"), Variant::wrap(gv!("i"), x)));
+    ///     let mut v = vec![];
+    ///     <gv!("v")>::serialize(
+    ///         Variant::wrap<gv!("v"), _>(Variant::wrap::<gv!("i"), _>(x)), &mut v).unwrap();
     ///
     /// Typically you'd represent rust enums as GVariant variants.  The best way to
     /// serialize enums as variants is to implement `SerializeTo` for the enum.
@@ -1005,15 +857,14 @@ impl Variant {
     ///     impl SerializeTo<gvariant::Variant> for &MyEnum {
     ///         fn serialize(self, f: &mut impl std::io::Write) -> std::io::Result<usize> {
     ///             match self {
-    ///                 MyEnum::Bool(x) => Variant::wrap(gv!("b"), x).serialize(f),
-    ///                 MyEnum::String(x) => Variant::wrap(gv!("s"), x).serialize(f),
+    ///                 MyEnum::Bool(x) => Variant::wrap::<gv!("b"), _>(x).serialize(f),
+    ///                 MyEnum::String(x) => Variant::wrap::<gv!("s"), _>(x).serialize(f),
     ///             }
     ///         }
     ///     }
     ///
     /// A common type type seen in the wild is the "bag of properties" **a{sv}**.
     pub fn wrap<M: Cast + ?Sized, T: SerializeTo<M>>(
-        _marker: Marker<M>,
         data: T,
     ) -> VariantWrap<M, T> {
         VariantWrap(PhantomData::<M> {}, data)
@@ -1585,12 +1436,13 @@ pub fn write_offsets(
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv};
+///     # use gvariant::{aligned_bytes::empty_aligned, Cast, decl_gv, gv};
 ///     # let data = empty_aligned();
-///     gv!("mb").cast(data);
+///     # decl_gv!{type Yi = "(yi)"};
+///     <gv!("mb")>::from_aligned_slice(data);
 ///     # let data = empty_aligned();
-///     gv!("mi").cast(data);
-///     gv!("m(yi)").cast(data);
+///     <gv!("mi")>::from_aligned_slice(data);
+///     <gv!("m(yi)")>::from_aligned_slice(data);
 ///
 /// Rust's built in [`Option`] doesn't have any specified byte representation so
 /// we need our own type here.
@@ -1746,12 +1598,13 @@ where
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::empty_aligned, gv};
+///     # use gvariant::{aligned_bytes::empty_aligned, Cast, decl_gv, gv};
 ///     # let data = empty_aligned();
-///     gv!("ms").cast(data);
+///     # decl_gv!{ type Mias = "m(ias)" }
+///     <gv!("ms")>::from_aligned_slice(data);
 ///     # let data = empty_aligned();
-///     gv!("mmi").cast(data);
-///     gv!("m(ias)").cast(data);
+///     <gv!("mmi")>::from_aligned_slice(data);
+///     <gv!("m(ias)")>::from_aligned_slice(data);
 ///
 /// Rust's built in [`Option`] doesn't have any specified byte representation so
 /// we need our own type here.
@@ -1882,8 +1735,8 @@ where
 ///
 /// This is the type returned by:
 ///
-///     # use gvariant::{aligned_bytes::AsAligned, gv};
-///     gv!("b").cast(b"\0".as_aligned());
+///     # use gvariant::{aligned_bytes::AsAligned, Cast, gv};
+///     <gv!("b")>::from_aligned_slice(b"\0".as_aligned());
 ///
 /// Rust's built in [`bool`] doesn't have the same representation as GVariant's,
 /// so we need our own type here.  Rust's must either be `0x00` (`false`) or
@@ -2063,6 +1916,12 @@ mod tests {
     use super::*;
     use aligned_bytes::{copy_to_align, AlignedSlice, AsAligned, A8};
 
+    fn serialize_to_vec<M: Cast + ?Sized, T: SerializeTo<M>>(m: T) -> Vec<u8> {
+        let mut v = vec![];
+        m.serialize(&mut v).unwrap();
+        v
+    }
+
     #[test]
     fn test_numbers() {
         let data = copy_to_align(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
@@ -2229,39 +2088,38 @@ mod tests {
 
     #[test]
     fn test_spec_examples() {
-        assert_eq!(gv!("s").from_bytes(b"hello world\0"), "hello world");
-        assert_eq!(gv!("s").serialize_to_vec("hello world"), b"hello world\0");
+        assert_eq!(<gv!("s")>::from_aligned_slice(b"hello world\0".as_aligned()), "hello world");
+        assert_eq!(serialize_to_vec::<gv!("s"), _>(&"hello world"), b"hello world\0");
 
         assert_eq!(
-            gv!("ms")
-                .from_bytes(b"hello world\0\0")
+            <gv!("ms")>::
+                from_aligned_slice(b"hello world\0\0".as_aligned())
                 .to_option()
                 .unwrap(),
             "hello world"
         );
         assert_eq!(
-            gv!("ms").serialize_to_vec(&Some("hello world")),
+            serialize_to_vec::<gv!("ms"), _>(&Some("hello world")),
             b"hello world\0\0"
         );
 
         assert_eq!(
-            gv!("ab").cast(b"\x01\x00\x00\x01\x01".as_aligned()),
+            <gv!("ab")>::from_aligned_slice(b"\x01\x00\x00\x01\x01".as_aligned()),
             [true, false, false, true, true]
         );
         assert_eq!(
-            gv!("ab").serialize_to_vec(&[true, false, false, true, true][..]),
+            serialize_to_vec::<gv!("ab"), _>([true, false, false, true, true].iter()),
             b"\x01\x00\x00\x01\x01"
         );
 
         // String Array Example
         //
         // With type 'as':
-        let a = gv!("as").from_bytes(b"i\0can\0has\0strings?\0\x02\x06\x0a\x13");
+        let a = <gv!("as")>::from_aligned_slice(b"i\0can\0has\0strings?\0\x02\x06\x0a\x13".as_aligned());
         assert_array_self_consistent(&*a);
         assert_eq!(*a, ["i", "can", "has", "strings?"][..]);
         assert_eq!(
-            gv!("as")
-                .serialize_to_vec(&["i", "can", "has", "strings?"][..])
+            serialize_to_vec::<gv!("as"), _>(["i", "can", "has", "strings?"].iter())
                 .as_slice(),
             b"i\0can\0has\0strings?\0\x02\x06\x0a\x13"
         );
@@ -2269,11 +2127,11 @@ mod tests {
         // Array of Bytes Example
         //
         // With type 'ay':
-        let aob = gv!("ay").cast([0x04u8, 0x05, 0x06, 0x07].as_aligned());
+        let aob = <gv!("ay")>::from_aligned_slice([0x04u8, 0x05, 0x06, 0x07].as_aligned());
         assert_eq!(aob, &[0x04u8, 0x05, 0x06, 0x07]);
         assert_eq!(
-            gv!("ay")
-                .serialize_to_vec(&[0x04u8, 0x05, 0x06, 0x07])
+            serialize_to_vec::<gv!("ay"), _>
+                ([0x04u8, 0x05, 0x06, 0x07].iter())
                 .as_slice(),
             &[0x04u8, 0x05, 0x06, 0x07]
         );
@@ -2281,9 +2139,10 @@ mod tests {
         // Array of Integers Example
         //
         // With type 'ai':
-        assert_eq!(gv!("ai").from_bytes(b"\x04\0\0\0\x02\x01\0\0"), [4, 258]);
+        let input = copy_to_align(b"\x04\0\0\0\x02\x01\0\0");
+        assert_eq!(<gv!("ai")>::from_aligned_slice(input.as_ref()), [4, 258]);
         assert_eq!(
-            gv!("ai").serialize_to_vec(&[4, 258]).as_slice(),
+            serialize_to_vec::<gv!("ai"), _>([4, 258].iter()).as_slice(),
             b"\x04\0\0\0\x02\x01\0\0"
         );
 
@@ -2328,19 +2187,20 @@ mod tests {
         assert_ne!(non_normal, v);
 
         // Encode an **as** as a variant
-        let x = Variant::wrap(gv!("as"), ["hello", "goodbye"].as_ref());
-        let v = gv!("v").serialize_to_vec(x);
+        let x = Variant::wrap::<gv!("as"), _>(["hello", "goodbye"].as_ref());
+        let v = serialize_to_vec::<gv!("v"), _>(x);
         assert_eq!(v, b"hello\0goodbye\0\x06\x0e\0as");
 
         // Wrap in another layer of variant
-        let xv = Variant::wrap(gv!("v"), x);
-        let vv = gv!("v").serialize_to_vec(xv);
+        let xv = Variant::wrap::<gv!("v"), _>(x);
+        let vv = serialize_to_vec::<gv!("v"), _>(xv);
         assert_eq!(vv, b"hello\0goodbye\0\x06\x0e\0as\0v");
 
         // Deserialize and unwrap those variants to get the original **as** back:
-        let de_vv: Box<Variant> = gv!("v").from_bytes(vv);
-        let de_v = de_vv.get(gv!("v")).unwrap();
-        let de = de_v.get(gv!("as")).unwrap();
+        let vv_aligned = copy_to_align(vv.as_aligned());
+        let de_vv = <gv!("v")>::from_aligned_slice(vv_aligned.as_ref());
+        let de_v = de_vv.get::<gv!("v")>().unwrap();
+        let de = de_v.get::<gv!("as")>().unwrap();
         assert_eq!(de, ["hello", "goodbye"].as_ref())
     }
 }

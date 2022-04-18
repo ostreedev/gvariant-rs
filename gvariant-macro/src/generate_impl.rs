@@ -32,15 +32,6 @@ pub(crate) fn generate_types(spec: &GVariantType, seen: &mut HashSet<String>) ->
         // Everything else is a builtin
         _ => "".to_owned(),
     };
-    out += format!("
-        #[derive(Copy, Clone)]
-        pub(crate) struct Marker{typestr}();
-        impl ::gvariant::Marker for Marker{typestr} {{
-            type Type = {ty};
-            #[allow(clippy::string_lit_as_bytes)]
-            const TYPESTR: &'static [u8] = \"{spec}\".as_bytes();
-        }}
-    ", spec=spec, typestr=escape(spec.to_string()), ty=marker_type(spec)).as_ref();
     Ok(out)
 }
 
@@ -88,10 +79,10 @@ fn write_non_fixed_size_structure(
         n_frames
     };
     let escaped = escape(spec.to_string());
-    let types: Vec<String> = children.iter().map(marker_type).collect();
+    let types: Vec<String> = children.iter().map(|x| marker_type(x, "")).collect();
     let mut tuple = vec![b'('];
     for child in children {
-        write!(tuple, "                &'a {},", marker_type(child))?;
+        write!(tuple, "                &'a {},", marker_type(child, ""))?;
     }
     writeln!(tuple, "            )")?;
     let tuple = String::from_utf8(tuple)?;
@@ -123,7 +114,7 @@ fn write_non_fixed_size_structure(
         fn typestr_matches(buf: &[u8]) -> bool {{
             buf == Self::TYPESTR.as_bytes()
         }}
-        fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {{
+        fn write_typestr(f: &mut impl std::io::Write) -> std::io::Result<()> {{
             f.write_all(Self::TYPESTR.as_bytes())
         }}
 
@@ -191,8 +182,8 @@ fn write_non_fixed_size_structure(
                 {child_size:?},
                 {last_child},
                 {n_frame_offsets}),",
-            ty = child,
-            marker_type = marker_type(child),
+                ty = child,
+            marker_type = marker_type(child, ""),
             i = i,
             a = a,
             b = b,
@@ -238,7 +229,7 @@ fn write_non_fixed_size_structure(
         serialize_types.push(format!(
             "T{}: ::gvariant::SerializeTo<{}> + Copy",
             n,
-            marker_type(child)
+            marker_type(child, "")
         ));
         serialize_types2.push(format!("T{},", n));
     }
@@ -464,7 +455,7 @@ fn write_packed_struct(
             serialize_cmds.push(format!("f.write_all(b\"{}\")?;", "\\0".repeat(padding)));
             padding_count += 1;
         }
-        let rust_type: String = marker_type(child);
+        let rust_type: String = marker_type(child, "");
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
         writeln!(out, "    pub field_{} : {},", n, rust_type)?;
         field_arglist.push(format!("field_{} : {}", n, rust_type));
@@ -515,7 +506,7 @@ fn write_packed_struct(
             fn typestr_matches(buf: &[u8]) -> bool {{
                 buf == Self::TYPESTR.as_bytes()
             }}
-            fn write_typestr(f: &mut impl Write) -> std::io::Result<()> {{
+            fn write_typestr(f: &mut impl std::io::Write) -> std::io::Result<()> {{
                 f.write_all(Self::TYPESTR.as_bytes())
             }}
 

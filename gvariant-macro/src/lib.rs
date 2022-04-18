@@ -14,18 +14,8 @@ use type_parser::{one, GVariantType};
 #[proc_macro]
 pub fn gv_type(input: TokenStream) -> TokenStream {
     let typestr = parse_macro_input!(input as LitStr).value();
-    type_for_typestr(typestr.as_ref()).unwrap().parse().unwrap()
-}
-
-#[proc_macro]
-pub fn gv_marker(input: TokenStream) -> TokenStream {
-    let typestr = parse_macro_input!(input as LitStr).value();
-    marker_for_typestr(typestr.as_ref()).unwrap().parse().unwrap()
-}
-
-fn marker_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
-    let spec = type_parser::one(gv_typestr)?;
-    Ok(format!("Marker{}", escape(spec.to_string())))
+    let spec = type_parser::one(typestr.as_bytes()).unwrap();
+    marker_type(&spec, "gv_decls::").parse().unwrap()
 }
 
 struct TypeDecl {
@@ -70,20 +60,16 @@ pub fn reference_gv(input: TokenStream) -> TokenStream {
     let type_stmts = parse_macro_input!(input as TypeStmtList);
     let mut out = TokenStream::new();
     for stmt in type_stmts.stmts {
-        let ts : TokenStream = format!("type {} = gv_decls::Marker{};", stmt.name.to_string(), escape(stmt.typestr.value())).parse().unwrap();
+        let gvt = type_parser::one(stmt.typestr.value().as_bytes()).unwrap();
+        let ts : TokenStream = format!("type {} = {};", stmt.name.to_string(), marker_type(&gvt, "gv_decls::")).parse().unwrap();
         out.extend(Some(ts));
     }
     out
 }
 
-fn type_for_typestr(gv_typestr: &[u8]) -> Result<String, Box<dyn Error>> {
-    let spec = type_parser::one(gv_typestr)?;
-    Ok(marker_type(&spec))
-}
-
-pub(crate) fn marker_type(t: &GVariantType) -> String {
+pub(crate) fn marker_type(t: &GVariantType, decls_ns: &str) -> String {
     match t {
-        GVariantType::B => "Bool".to_string(),
+        GVariantType::B => "gvariant::Bool".to_string(),
         GVariantType::Y => "u8".to_string(),
         GVariantType::N => "i16".to_string(),
         GVariantType::Q => "u16".to_string(),
@@ -92,20 +78,20 @@ pub(crate) fn marker_type(t: &GVariantType) -> String {
         GVariantType::X => "i64".to_string(),
         GVariantType::T => "u64".to_string(),
         GVariantType::D => "f64".to_string(),
-        GVariantType::S => "Str".to_string(),
-        GVariantType::O => "Str".to_string(),
-        GVariantType::G => "Str".to_string(),
-        GVariantType::V => "Variant".to_string(),
+        GVariantType::S => "gvariant::Str".to_string(),
+        GVariantType::O => "gvariant::Str".to_string(),
+        GVariantType::G => "gvariant::Str".to_string(),
+        GVariantType::V => "gvariant::Variant".to_string(),
         GVariantType::A(t) => match size_of(t) {
-            None => format!("NonFixedWidthArray::<{}>", marker_type(t)),
-            Some(_) => format!("[{}]", marker_type(t)),
+            None => format!("gvariant::NonFixedWidthArray::<{}>", marker_type(t, decls_ns)),
+            Some(_) => format!("[{}]", marker_type(t, decls_ns)),
         },
         GVariantType::M(t) => match size_of(t) {
-            None => format!("MaybeNonFixedSize::<{}>", marker_type(t)),
-            Some(_) => format!("MaybeFixedSize::<{}>", marker_type(t)),
+            None => format!("gvariant::MaybeNonFixedSize::<{}>", marker_type(t, decls_ns)),
+            Some(_) => format!("gvariant::MaybeFixedSize::<{}>", marker_type(t, decls_ns)),
         },
         GVariantType::Tuple(_) | GVariantType::DictItem(_) => {
-            format!("Structure{name}", name = escape(t.to_string()))
+            format!("{decls_ns}Structure{name}", decls_ns = decls_ns, name = escape(t.to_string()))
         }
     }
 }
