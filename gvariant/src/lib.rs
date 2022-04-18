@@ -466,7 +466,7 @@ macro_rules! gv {
                 #[allow(clippy::string_lit_as_bytes)]
                 const TYPESTR: &'static [u8] = $typestr.as_bytes();
             }
-        };
+        }
         // TODO: I'd much rather that this macro returns a type, rather than
         // a value.  That way getting a gvariant looks like:
         //
@@ -1984,7 +1984,7 @@ mod tests {
     fn test_non_fixed_width_array_panic() {
         // Non-normal regression test found by fuzzing:
         let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x08".as_aligned());
-        &nfwa[0];
+        _ = &nfwa[0];
     }
 
     #[test]
