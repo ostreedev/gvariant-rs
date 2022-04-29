@@ -168,10 +168,9 @@ pub struct A8;
 unsafe impl Alignment for A8 {
     const ALIGNMENT: usize = 8;
 }
-unsafe impl AlignedTo<A1> for A8 {}
-unsafe impl AlignedTo<A2> for A8 {}
-unsafe impl AlignedTo<A4> for A8 {}
-unsafe impl AlignedTo<A8> for A8 {}
+
+// A8 is the maximum alignment, so all Alignments must
+unsafe impl<A: Alignment> AlignedTo<A> for A8 {}
 
 /// Allows narrowing the alignment of a `&AlignedSlice`
 ///
