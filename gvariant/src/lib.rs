@@ -225,6 +225,21 @@
 //! * [serde_gvariant](https://github.com/lucab/serde_gvariant) - Implements the
 //!   same format, but for serde integration.  Described as "WIP" and not
 //!   published on crates.io
+//!
+//! # Release Notes
+//!
+//! ## 0.5.0
+//!
+//! ### Breaking changes
+//!
+//! * The owned equivalent of [Str] is [GString].  In 0.4 it was [Box<Str>].
+//!   This affects the return type of `gv!("s").from_bytes(...)`.
+//!
+//! ### New features
+//!
+//! * New struct [GString] introduced.  It replaces [Box<Str>] as the owned
+//!   equivalent of [Str].  Unlike [Box<Str>] it can be extended and written
+//!   to in-place.
 
 #![allow(clippy::manual_map)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -591,13 +606,7 @@ impl_cast_for!(f64, 0.);
 pub struct Str {
     data: [u8],
 }
-#[cfg(feature = "alloc")]
-impl ToOwned for Str {
-    type Owned = Box<Self>;
-    fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned().into_boxed_slice())
-    }
-}
+
 impl Str {
     /// Convert `&Str` to `&[u8]`
     ///
@@ -749,6 +758,13 @@ impl From<&Str> for String {
         x.to_str().into()
     }
 }
+#[cfg(feature = "alloc")]
+impl ToOwned for Str {
+    type Owned = GString;
+    fn to_owned(&self) -> Self::Owned {
+        GString::from_str_unchecked(self.to_str())
+    }
+}
 
 // TODO: Replace this with core::str::lossy::Utf8Lossy if it's ever stabilised.
 struct DisplayUtf8Lossy<'a>(&'a [u8]);
@@ -781,6 +797,193 @@ impl core::fmt::Debug for DisplayUtf8Lossy<'_> {
         }
     }
 }
+
+#[cfg(feature = "alloc")]
+mod gstring {
+    use super::*;
+
+    use core::{borrow::Borrow, convert::TryFrom, ops::Deref};
+    #[cfg(feature = "std")]
+    use std::ffi::CStr;
+
+    /// Owned version of `Str`
+    ///
+    /// Invariants:
+    ///
+    /// * must be UTF-8 encoded (much like [std::string::String])
+    /// * must not contain embedded NUL bytes (much like [std::ffi::CString])
+    ///
+    /// Requirements:
+    ///
+    /// * Must be convertable to Str without mutation - so internally it is
+    ///   stored with a terminating NUL byte.
+    ///
+    /// ```
+    /// use gvariant::{gv, GString, Marker};
+    /// use core::fmt::Write;
+    /// let mut s = GString::new();
+    /// write!(s, "I love the number {}, it's the best", 5);
+    /// assert_eq!(s.as_str(), "I love the number 5, it's the best");
+    ///
+    /// let s: GString = gv!("s").from_bytes("Bloo blah\0");
+    /// assert_eq!(s.as_str(), "Bloo blah");
+    /// ```
+    ///
+    /// New in 0.5.0
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+    pub struct GString {
+        // Invariant: data contains a single embedded NUL byte at the end and no
+        // other NUL bytes anywhere else
+        data: String,
+    }
+    impl Default for GString {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+    impl GString {
+        /// Extracts a string slice containing the entire string.  Doesn't include
+        /// the trailing NUL byte.
+        pub fn as_str(&self) -> &str {
+            self.as_ref()
+        }
+        /// Returns this [String]’s capacity, in bytes.
+        pub fn capacity(&self) -> usize {
+            self.data.capacity() - 1
+        }
+        /// Ensures that this string’s capacity is at least `additional` bytes
+        /// larger than its length.
+        ///
+        /// See [String::reserve]
+        pub fn reserve(&mut self, additional: usize) {
+            self.data.reserve(additional)
+        }
+        /// Truncates this string, removing all contents.
+        ///
+        /// See [String::clear]
+        pub fn clear(&mut self) {
+            self.data.clear();
+            self.data.push('\0');
+        }
+        /// Returns the length of this String, in bytes not including terminating
+        /// NUL.
+        ///
+        /// See [String::len].
+        pub fn len(&self) -> usize {
+            self.data.len() - 1
+        }
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+        /// Creates a new empty string.
+        pub fn new() -> Self {
+            Self {
+                data: "\0".to_owned(),
+            }
+        }
+        /// Creates a new empty String with a particular capacity.
+        ///
+        /// See [String::with_capacity].
+        pub fn with_capacity(capacity: usize) -> Self {
+            let mut data = String::with_capacity(capacity + 1);
+            data.push('\0');
+            Self {
+                data: "\0".to_owned(),
+            }
+        }
+        /// Appends a given string slice onto the end of this string.
+        ///
+        /// Returns error if the passed string contains a NUL byte.
+        pub fn try_push_str(&mut self, s: &str) -> Result<(), ContainsNulBytesError> {
+            if memchr::memchr(b'\0', s.as_bytes()).is_some() {
+                Err(ContainsNulBytesError())
+            } else {
+                self.data.reserve(s.len());
+                self.data.pop();
+                self.data += s;
+                self.data.push('\0');
+                Ok(())
+            }
+        }
+        pub(crate) fn from_str_unchecked(s: &str) -> Self {
+            let mut data = String::with_capacity(s.len() + 1);
+            data.push_str(s);
+            data.push('\0');
+            Self { data }
+        }
+    }
+    impl Display for GString {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let s: &str = self.as_ref();
+            Display::fmt(s, f)
+        }
+    }
+    impl Debug for GString {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let s: &str = self.as_ref();
+            Debug::fmt(s, f)
+        }
+    }
+    impl Borrow<Str> for GString {
+        fn borrow(&self) -> &Str {
+            self.deref()
+        }
+    }
+    impl Deref for GString {
+        type Target = Str;
+
+        fn deref(&self) -> &Self::Target {
+            Str::try_from_aligned_slice(self.data.as_bytes().as_aligned()).unwrap()
+        }
+    }
+    impl core::fmt::Write for GString {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            self.try_push_str(s).map_err(|_| core::fmt::Error)
+        }
+    }
+
+    pub struct ContainsNulBytesError();
+
+    impl TryFrom<String> for GString {
+        type Error = ContainsNulBytesError;
+
+        fn try_from(mut value: String) -> Result<Self, Self::Error> {
+            if memchr::memchr(b'\0', value.as_bytes()).is_some() {
+                Err(ContainsNulBytesError())
+            } else {
+                value.push('\0');
+                Ok(GString { data: value })
+            }
+        }
+    }
+    impl From<GString> for String {
+        fn from(mut s: GString) -> Self {
+            // Remove trailing NUL:
+            s.data.pop();
+            s.data
+        }
+    }
+    #[cfg(feature = "std")]
+    impl From<GString> for std::ffi::CString {
+        fn from(s: GString) -> Self {
+            // Unwrap is ok: We don't contain embedded NUL bytes
+            Self::from_vec_with_nul(s.data.into()).unwrap()
+        }
+    }
+    #[cfg(feature = "std")]
+    impl AsRef<CStr> for GString {
+        fn as_ref(&self) -> &CStr {
+            CStr::from_bytes_with_nul(self.data.as_bytes()).unwrap()
+        }
+    }
+    impl AsRef<str> for GString {
+        fn as_ref(&self) -> &str {
+            &self.data[..self.data.len() - 1]
+        }
+    }
+}
+#[cfg(feature = "alloc")]
+pub use gstring::{ContainsNulBytesError, GString};
 
 /// The GVariant Variant **v** type
 ///
@@ -1990,7 +2193,10 @@ mod tests {
 
     #[test]
     fn test_spec_examples() {
-        assert_eq!(&*gv!("s").from_bytes(b"hello world\0"), "hello world");
+        assert_eq!(
+            gv!("s").from_bytes(b"hello world\0").as_str(),
+            "hello world"
+        );
         assert_eq!(gv!("s").serialize_to_vec("hello world"), b"hello world\0");
 
         assert_eq!(
