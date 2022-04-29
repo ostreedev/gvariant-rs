@@ -157,3 +157,34 @@ impl<A: Alignment> Borrow<AlignedSlice<A>> for AlignedBuf {
         (**self).as_aligned()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::AlignedBuf;
+
+    fn read_to_buf(mut file: impl std::io::Read) -> AlignedBuf {
+        let mut v = vec![];
+        file.read_to_end(&mut v).unwrap();
+        v.into()
+    }
+
+    #[test]
+    fn test_read_to_buf() {
+        let mut d: Vec<u8> = vec![0; 16384];
+        for x in 0..16384 {
+            d[x] = (x % 256) as u8;
+        }
+
+        let s = read_to_buf(b"".as_ref());
+        assert_eq!(**s, *b"");
+
+        let s = read_to_buf(&d[..12]);
+        assert_eq!(**s, d[..12]);
+
+        let s = read_to_buf(&d[..8000]);
+        assert_eq!(**s, d[..8000]);
+
+        let s = read_to_buf(d.as_slice());
+        assert_eq!(&**s, d.as_slice());
+    }
+}

@@ -89,12 +89,7 @@ use core::ops::{
 
 #[cfg(feature = "alloc")]
 pub use crate::buf::AlignedBuf;
-use core::{
-    cmp::{max, min},
-    fmt::Debug,
-};
-#[cfg(feature = "std")]
-use std::io::IoSliceMut;
+use core::fmt::Debug;
 use std::marker::PhantomData;
 
 /// A trait for our alignment structs [`A1`], [`A2`], [`A4`] and [`A8`].
@@ -275,54 +270,6 @@ pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
         //   specified in layout
         let bs = core::slice::from_raw_parts_mut(alloc::alloc::alloc_zeroed(layout), size);
         Box::from_raw(to_alignedslice_unchecked_mut(bs))
-    }
-}
-
-/// Read the contents of the `Read` into an `AlignedSlice`
-///
-/// This can be considered equivalent to `Read::read_to_end()`, but for
-/// `AlignedSlice` rather than `Vec`.
-///
-/// If we know how much data there is to read (a common case) then setting
-/// `size_hint` will allow us to perform just a single allocation and no
-/// copying.
-#[cfg(feature = "std")]
-pub fn read_to_slice<A: Alignment, R: std::io::Read>(
-    mut r: R,
-    size_hint: Option<usize>,
-) -> std::io::Result<Box<AlignedSlice<A>>> {
-    let mut bytes_read = 0;
-    let mut eof_byte = [0u8];
-    let mut buf = alloc_aligned(size_hint.unwrap_or(4000));
-
-    loop {
-        let mut ios = [
-            IoSliceMut::new(&mut buf.as_mut()[bytes_read..]),
-            IoSliceMut::new(&mut eof_byte),
-        ];
-        let this_read = r.read_vectored(&mut ios)?;
-        bytes_read += this_read;
-        if this_read == 0 {
-            // EOF
-            return Ok(realloc(buf, bytes_read));
-        }
-        if bytes_read > buf.len() {
-            // Ran out of space
-            buf = realloc(buf, max(bytes_read * 2, 4000));
-            buf[bytes_read - 1] = eof_byte[0];
-        }
-    }
-}
-
-fn realloc<A: Alignment>(s: Box<AlignedSlice<A>>, new_size: usize) -> Box<AlignedSlice<A>> {
-    if s.len() == new_size {
-        s
-    } else {
-        // TODO: Optimise to use alloc::realloc
-        let mut new_buf = alloc_aligned(new_size);
-        let up_to = min(new_size, s.len());
-        new_buf.as_mut()[..up_to].copy_from_slice(s[..up_to].as_ref());
-        new_buf
     }
 }
 
@@ -685,39 +632,4 @@ fn align_bytes<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
 /// This is useful for implementing GVariant default values.
 pub fn empty_aligned<A: Alignment>() -> &'static AlignedSlice<A> {
     &align_bytes(b"        ")[..0]
-}
-
-#[cfg(test)]
-mod test {
-    use super::{read_to_slice, AlignedSlice, A8};
-
-    #[test]
-    fn test_read_to_slice() {
-        let mut d: Vec<u8> = vec![0; 16384];
-        for x in 0..16384 {
-            d[x] = (x % 256) as u8;
-        }
-
-        for size_hint in &[
-            Some(11),
-            None,
-            Some(0),
-            Some(1),
-            Some(7999),
-            Some(8000),
-            Some(8001),
-        ] {
-            let s: Box<AlignedSlice<A8>> = read_to_slice(b"".as_ref(), *size_hint).unwrap();
-            assert_eq!(**s, *b"");
-
-            let s: Box<AlignedSlice<A8>> = read_to_slice(&d[..12], *size_hint).unwrap();
-            assert_eq!(**s, d[..12]);
-
-            let s: Box<AlignedSlice<A8>> = read_to_slice(&d[..8000], *size_hint).unwrap();
-            assert_eq!(**s, d[..8000]);
-
-            let s: Box<AlignedSlice<A8>> = read_to_slice(d.as_slice(), *size_hint).unwrap();
-            assert_eq!(&**s, d.as_slice());
-        }
-    }
 }

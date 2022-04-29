@@ -68,7 +68,6 @@
 //!
 //! * our errors to implement [`std::error::Error`]
 //! * [`Marker::deserialize`]
-//! * [`aligned_bytes::read_to_slice`]
 //! * Some CPU dependent string handling optimisations in the memchr crate
 //! * Serialisation: although this requirement could be relaxed in the future
 //!
@@ -235,6 +234,28 @@
 //!
 //! * The owned equivalent of [Str] is [GString].  In 0.4 it was [Box<Str>].
 //!   This affects the return type of `gv!("s").from_bytes(...)`.
+//! * Removed `aligned_bytes::read_to_slice` in favour of using [AlignedBuf].
+//!   [AlignedBuf] is more convenient as it interoperates with [Vec<u8>].  So
+//!   instead of writing:
+//!
+//!   ```compile_fail
+//!   use gvariant::aligned_bytes::{AlignedSlice, read_to_slice, A8};
+//!   let b : Box<AlignedSlice<A8>> = read_to_slice(file)?;
+//!   ```
+//!
+//!   you write:
+//!
+//!   ```
+//!   use gvariant::aligned_bytes::AlignedBuf;
+//!   use std::io::Read;
+//!   # fn main() -> std::io::Result<()> {
+//!   #     let mut file : &[u8] = b"";
+//!         let mut v = vec![];
+//!         file.read_to_end(&mut v)?;
+//!         let b : AlignedBuf = v.into();
+//!   #     Ok(())
+//!   # }
+//!   ```
 //!
 //! ### New features
 //!
@@ -344,10 +365,12 @@ pub trait Marker: Copy {
     #[cfg(feature = "std")]
     fn deserialize(
         &self,
-        r: impl std::io::Read,
+        mut r: impl std::io::Read,
     ) -> std::io::Result<<Self::Type as ToOwned>::Owned> {
-        let data = aligned_bytes::read_to_slice(r, None)?;
-        Ok(self.cast(&*data).to_owned())
+        let mut buf = vec![];
+        r.read_to_end(&mut buf)?;
+        let buf: buf::AlignedBuf = buf.into();
+        Ok(self.cast(buf.as_aligned()).to_owned())
     }
 
     /// Deserialise the given `data`, making a copy in the process.
@@ -355,7 +378,7 @@ pub trait Marker: Copy {
     /// This is a convenience API wrapper around `copy_to_align` and `cast`
     /// allowing users to not have to think about the alignment of their data.
     /// It is usually better to ensure the data you have is aligned, for example
-    /// using `alloc_aligned` or `read_to_slice`, and then use `cast` directly.
+    /// using `alloc_aligned` or `AlignedBuf`, and then use `cast` directly.
     /// This way you can avoid additional allocations, avoid additional copying,
     /// and work in noalloc contexts.
     ///
