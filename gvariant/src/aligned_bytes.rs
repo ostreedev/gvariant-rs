@@ -29,22 +29,19 @@
 //! appropriate alignment convenient.  For example: use a `&impl AsAligned<A2>`
 //! parameter to accept any data with 2B or greater alignment.
 //!
-//! [`alloc_aligned`] is provided to make it easy and safe to create aligned
+//! [`AlignedBuf`] is provided to make it easy and safe to create aligned
 //! buffers. Example reading data from file into aligned buffer:
 //!
 //! ```rust
-//! # use gvariant::aligned_bytes::{A8, alloc_aligned};
+//! # use gvariant::aligned_bytes::{AlignedBuf, AsAligned};
 //! # use std::io::Read;
 //! # fn foo() -> Result<(), Box<dyn std::error::Error>> {
 //! # let mut file = std::fs::File::open("")?;
-//! let mut buf = alloc_aligned::<A8>(4096);
+//! let mut buf = vec![];
 //! let len = file.read(buf.as_mut())?;
-//! let aligned_data = &buf[..len];
+//! let mut buf : AlignedBuf = buf.into();
 //! # Ok(()) }
 //! ```
-//!
-//! I've not yet implemented it, but it may become necessary to create an
-//! equivalent to `Vec<u8>` but for aligned memory.  We'll see how we get on.
 //!
 //! #### Efficiency of statically known alignment
 //!
@@ -89,6 +86,9 @@ use core::ops::{
     Deref, DerefMut, Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo,
     RangeToInclusive,
 };
+
+#[cfg(feature = "alloc")]
+pub use crate::buf::AlignedBuf;
 use core::{
     cmp::{max, min},
     fmt::Debug,
@@ -612,15 +612,18 @@ impl<A: Alignment> IndexMut<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
     }
 }
 
-unsafe fn to_alignedslice_unchecked<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
-    debug_assert!(is_aligned_to::<A>(value));
+pub(crate) unsafe fn to_alignedslice_unchecked<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
+    debug_assert!(value.is_empty() || is_aligned_to::<A>(value));
     #[allow(unused_unsafe)]
     unsafe {
         &*(value as *const [u8] as *const AlignedSlice<A>)
     }
 }
-unsafe fn to_alignedslice_unchecked_mut<A: Alignment>(value: &mut [u8]) -> &mut AlignedSlice<A> {
-    debug_assert!(is_aligned_to::<A>(value));
+
+pub(crate) unsafe fn to_alignedslice_unchecked_mut<A: Alignment>(
+    value: &mut [u8],
+) -> &mut AlignedSlice<A> {
+    debug_assert!(value.is_empty() || is_aligned_to::<A>(value));
     #[allow(unused_unsafe)]
     unsafe {
         &mut *(value as *mut [u8] as *mut AlignedSlice<A>)

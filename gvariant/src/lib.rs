@@ -178,13 +178,14 @@
 //!
 //! So typically code might look like:
 //!
-//!     # use gvariant::{aligned_bytes::alloc_aligned, gv, Marker};
+//!     # use gvariant::{aligned_bytes::AlignedBuf, gv, Marker};
 //!     # use std::io::Read;
 //!     # fn a() -> std::io::Result<()> {
 //!     # let mut file = std::fs::File::open("")?;
-//!     let mut buf = alloc_aligned(4096);
-//!     let len = file.read(&mut buf)?;
-//!     let data = gv!("a(sia{sv})").cast(&buf[..len]);
+//!     let mut buf = vec![];
+//!     file.read_to_end(&mut buf)?;
+//!     let mut buf : AlignedBuf = buf.into();
+//!     let data = gv!("a(sia{sv})").cast(&buf);
 //!     # todo!()
 //!     # }
 //!
@@ -240,6 +241,10 @@
 //! * New struct [GString] introduced.  It replaces [Box<Str>] as the owned
 //!   equivalent of [Str].  Unlike [Box<Str>] it can be extended and written
 //!   to in-place.
+//! * New struct [AlignedBuf] introduced.  This is to [AlignedSlice] as
+//!   [Vec<u8>] is to [[u8]].  There is cheap conversion to/from [Vec<u8>]
+//!   which will make it much easier to integrate with the broader Rust
+//!   ecosystem - including reading from files, async, etc.
 
 #![allow(clippy::manual_map)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -267,7 +272,11 @@ use offset::align_offset;
 pub mod casting;
 mod offset;
 
+#[cfg(feature = "alloc")]
+pub(crate) mod buf;
+
 use aligned_bytes::{empty_aligned, AlignedSlice, AsAligned, A8};
+
 use casting::{AlignOf, AllBitPatternsValid};
 
 #[doc(hidden)]
