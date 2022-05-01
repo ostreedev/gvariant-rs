@@ -7,7 +7,7 @@ struct ParseError {
 }
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Parse Error")
+        write!(f, "Parse Error: {}", self.message)
     }
 }
 impl Error for ParseError {}
