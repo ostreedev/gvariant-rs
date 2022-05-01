@@ -79,7 +79,7 @@
 //!
 //! * Allocating [`AlignedSlice`]s with [`ToOwned`],
 //!   [`copy_to_align`][aligned_bytes::copy_to_align] and
-//!   [`alloc_aligned`][aligned_bytes::alloc_aligned].
+//!   [`AlignedBuf`].
 //! * The convenience API `Marker::from_bytes` - use `Marker::cast` instead
 //! * Correctly displaying non-utf-8 formatted strings
 //! * Copying unsized GVariant objects with `to_owned()`
@@ -259,6 +259,9 @@
 //!   #     Ok(())
 //!   # }
 //!   ```
+//! * Removed `aligned_bytes::alloc_aligned`.  Use [AlignedBuf] instead.
+//!   According to miri `alloc_aligned` was unsound.  [AlignedBuf] is sound and
+//!   more convenient to use.
 //!
 //! ### New features
 //!
@@ -387,7 +390,7 @@ pub trait Marker: Copy {
     /// This is a convenience API wrapper around `copy_to_align` and `cast`
     /// allowing users to not have to think about the alignment of their data.
     /// It is usually better to ensure the data you have is aligned, for example
-    /// using `alloc_aligned` or `AlignedBuf`, and then use `cast` directly.
+    /// using `copy_to_align` or `AlignedBuf`, and then use `cast` directly.
     /// This way you can avoid additional allocations, avoid additional copying,
     /// and work in noalloc contexts.
     ///

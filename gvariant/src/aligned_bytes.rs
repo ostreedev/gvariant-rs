@@ -78,10 +78,7 @@
 pub use crate::offset::{align_offset, AlignedOffset};
 
 #[cfg(feature = "alloc")]
-use alloc::{
-    borrow::{Cow, ToOwned},
-    boxed::Box,
-};
+use alloc::borrow::{Cow, ToOwned};
 use core::ops::{
     Deref, DerefMut, Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo,
     RangeToInclusive,
@@ -245,27 +242,6 @@ pub fn copy_to_align<A: Alignment>(data: &[u8]) -> Cow<'_, AlignedSlice<A>> {
         Cow::Borrowed(data.try_as_aligned().unwrap())
     } else {
         Cow::Owned(data.to_owned().into())
-    }
-}
-
-/// Allocate a new boxed [`AlignedSlice`].
-///
-/// Data is initialised to all 0.
-#[cfg(feature = "alloc")]
-pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
-    let layout = alloc::alloc::Layout::from_size_align(size, A::ALIGNMENT).unwrap();
-    unsafe {
-        // This is safe because:
-        //
-        // * We use the same size here as passed into layout, so the slice only
-        //   points to genuinely allocated memory
-        // * We use alloc_zeroed so the memory is completely initialised
-        // * All zeros is a valid bit pattern for [u8], as is any bit pattern
-        // * We can cast to AlignedSlice because the representation is the same
-        //   as [u8] modulo alignment, and appropriate alignment has been
-        //   specified in layout
-        let bs = core::slice::from_raw_parts_mut(alloc::alloc::alloc_zeroed(layout), size);
-        Box::from_raw(to_alignedslice_unchecked_mut(bs))
     }
 }
 
