@@ -228,11 +228,9 @@ impl<A: Alignment> PartialEq for AlignedSlice<A> {
 
 #[cfg(feature = "alloc")]
 impl<A: Alignment> ToOwned for AlignedSlice<A> {
-    type Owned = Box<AlignedSlice<A>>;
+    type Owned = AlignedBuf;
     fn to_owned(&self) -> Self::Owned {
-        let mut owned = alloc_aligned(self.len());
-        owned.copy_from_slice(self);
-        owned
+        self.data.to_owned().into()
     }
 }
 
@@ -246,9 +244,7 @@ pub fn copy_to_align<A: Alignment>(data: &[u8]) -> Cow<'_, AlignedSlice<A>> {
     if is_aligned_to::<A>(data) {
         Cow::Borrowed(data.try_as_aligned().unwrap())
     } else {
-        let mut copy = alloc_aligned::<A>(data.len());
-        copy.copy_from_slice(data);
-        Cow::Owned(copy)
+        Cow::Owned(data.to_owned().into())
     }
 }
 

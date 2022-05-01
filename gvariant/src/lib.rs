@@ -234,6 +234,9 @@
 //!
 //! * The owned equivalent of [Str] is [GString].  In 0.4 it was [Box<Str>].
 //!   This affects the return type of `gv!("s").from_bytes(...)`.
+//! * [Owned<T>] replaces [Box<T>] as the owned equivalent of [Variant],
+//!   [NonFixedWidthArray], [MaybeFixedSize], [MaybeNonFixedSize] and the
+//!   macro-generated GVariant structs that implement the [Structure] trait.
 //! * Removed `aligned_bytes::read_to_slice` in favour of using [AlignedBuf].
 //!   [AlignedBuf] is more convenient as it interoperates with [Vec<u8>].  So
 //!   instead of writing:
@@ -266,6 +269,10 @@
 //!   [Vec<u8>] is to [[u8]].  There is cheap conversion to/from [Vec<u8>]
 //!   which will make it much easier to integrate with the broader Rust
 //!   ecosystem - including reading from files, async, etc.
+//! * New struct [Owned<T>] introduced.  It replaces [Box<T>] as the owned
+//!   eqivalent of most of our unsized types.  Namely: [Variant],
+//!   [NonFixedWidthArray], [MaybeFixedSize], [MaybeNonFixedSize] and the
+//!   macro-generated GVariant structs that implement the [Structure] trait.
 
 #![allow(clippy::manual_map)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -276,10 +283,12 @@ extern crate alloc;
 use alloc::{borrow::ToOwned, string::String};
 
 use core::{
+    borrow::Borrow,
     convert::TryInto,
     fmt::{Debug, Display},
     hash::Hash,
     marker::PhantomData,
+    ops::Deref,
 };
 
 #[cfg(feature = "std")]
@@ -444,6 +453,68 @@ pub trait Marker: Copy {
 /// wish to implement it for your own types as well.
 pub trait SerializeTo<T: Cast + ?Sized> {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize>;
+}
+
+/// Owned version of unsized types [Variant], [NonFixedWidthArray],
+/// [MaybeFixedSize], [MaybeNonFixedSize] and the macro-generated GVariant
+/// structs that implement the [Structure] trait.
+///
+/// Much like [Box<T>], [Owned<T>] dereferences to `T`.
+///
+/// Can be converted to/from a [Vec<u8>] for free[^1].
+///
+/// [^1]: See notes in [AlignedBuf].
+pub struct Owned<T: Cast + ?Sized> {
+    data: buf::AlignedBuf,
+    ty: PhantomData<T>,
+}
+
+impl<T: Cast + ?Sized> Debug for Owned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T: Cast + ?Sized> Display for Owned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T: Cast + ?Sized> Owned<T> {
+    /// Copies the bytes
+    pub fn from_bytes(s: &[u8]) -> Self {
+        Self {
+            data: s.to_owned().into(),
+            ty: PhantomData::<T> {},
+        }
+    }
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        Self {
+            data: data.into(),
+            ty: PhantomData::<T> {},
+        }
+    }
+}
+
+impl<T: Cast + ?Sized> Borrow<T> for Owned<T> {
+    fn borrow(&self) -> &T {
+        &*self
+    }
+}
+
+impl<T: Cast + ?Sized> Deref for Owned<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        T::from_aligned_slice(self.data.as_aligned())
+    }
+}
+
+impl<T: ?Sized + Cast> From<Vec<u8>> for Owned<T> {
+    fn from(data: Vec<u8>) -> Self {
+        Self::from_vec(data)
+    }
 }
 
 /// Maps from GVariant typestrs to compatible Rust types returning a `Marker`.
@@ -1088,9 +1159,9 @@ impl Debug for Variant {
 }
 #[cfg(feature = "alloc")]
 impl ToOwned for Variant {
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.0.to_owned())
+        Owned::from_bytes(&*self.0)
     }
 }
 
@@ -1365,9 +1436,9 @@ impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
 }
 #[cfg(feature = "alloc")]
 impl<T: Cast + ?Sized> ToOwned for NonFixedWidthArray<T> {
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned())
+        Self::Owned::from_bytes(&*self.data)
     }
 }
 unsafe impl<T: Cast + ?Sized> AlignOf for NonFixedWidthArray<T> {
@@ -1639,9 +1710,9 @@ impl<T: Cast> ToOwned for MaybeFixedSize<T> {
     // that `T::AlignOf >= mem::align_of<T>`, the inverse is not true.  We could
     // make that guarantee, but then this wouldn't be valid on architectures
     // where i64 is 32-bit aligned for example.
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned())
+        Owned::from_bytes(&*self.data)
     }
 }
 impl<T: Cast + Debug> Debug for MaybeFixedSize<T> {
@@ -1788,9 +1859,9 @@ impl<T: Cast + Debug + ?Sized> Debug for MaybeNonFixedSize<T> {
 }
 #[cfg(feature = "alloc")]
 impl<T: Cast + ?Sized> ToOwned for MaybeNonFixedSize<T> {
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned())
+        Owned::from_bytes(&*self.data)
     }
 }
 impl<T: Cast + ?Sized> MaybeNonFixedSize<T> {
@@ -2337,7 +2408,7 @@ mod tests {
         assert_eq!(vv, b"hello\0goodbye\0\x06\x0e\0as\0v");
 
         // Deserialize and unwrap those variants to get the original **as** back:
-        let de_vv: Box<Variant> = gv!("v").from_bytes(vv);
+        let de_vv: Owned<Variant> = gv!("v").from_bytes(vv);
         let de_v = de_vv.get(gv!("v")).unwrap();
         let de = de_v.get(gv!("as")).unwrap();
         assert_eq!(de, ["hello", "goodbye"].as_ref())
