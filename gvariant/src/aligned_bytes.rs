@@ -102,6 +102,8 @@ use std::io::IoSliceMut;
 /// rust stable channel yet.  This is the type-level equivalent of
 /// `enum Alignment {A1 = 1, A2 = 2, A4 = 4, A8 = 8}`.
 ///
+/// # Safety
+///
 /// This is unsafe because it must only be implemented for zero-sized types.  Do
 /// not implement this trait.  The implementations in this module should be the
 /// only implementations.
@@ -125,6 +127,11 @@ pub unsafe trait Alignment: Debug {
 /// ```ignore
 /// where A::ALIGNMENT >= 4
 /// ```
+///
+/// # Safety
+///
+/// GVariant only recognises alignment of 1, 2, 4 and 8B.  All valid
+/// implementations are provided by this crate.  Do not implment in user code.
 pub unsafe trait AlignedTo<A: Alignment>: Alignment {}
 
 /// 1-byte alignment e.g. no alignment
@@ -243,7 +250,7 @@ impl<A: Alignment> ToOwned for AlignedSlice<A> {
 /// advance.  By using `Cow` we only have to make a copy of the data if it is
 /// not aligned.
 #[cfg(feature = "alloc")]
-pub fn copy_to_align<'a, A: Alignment>(data: &'a [u8]) -> Cow<'a, AlignedSlice<A>> {
+pub fn copy_to_align<A: Alignment>(data: &[u8]) -> Cow<'_, AlignedSlice<A>> {
     if is_aligned_to::<A>(data) {
         Cow::Borrowed(data.try_as_aligned().unwrap())
     } else {
@@ -480,7 +487,7 @@ impl<A: Alignment> Index<Range<usize>> for AlignedSlice<A> {
     fn index(&self, index: Range<usize>) -> &Self::Output {
         // Truncating the slice on the left can affect the alignment, so we
         // return an unaligned slice here
-        &self.data[index].as_aligned()
+        self.data[index].as_aligned()
     }
 }
 impl<A: Alignment> Index<RangeInclusive<usize>> for AlignedSlice<A> {
@@ -488,7 +495,7 @@ impl<A: Alignment> Index<RangeInclusive<usize>> for AlignedSlice<A> {
     fn index(&self, index: RangeInclusive<usize>) -> &Self::Output {
         // Truncating the slice on the left can affect the alignment, so we
         // return an unaligned slice here
-        &self.data[index].as_aligned()
+        self.data[index].as_aligned()
     }
 }
 impl<A: Alignment> Index<RangeFrom<usize>> for AlignedSlice<A> {
@@ -496,13 +503,13 @@ impl<A: Alignment> Index<RangeFrom<usize>> for AlignedSlice<A> {
     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
         // Truncating the slice on the left can affect the alignment, so we
         // return an unaligned slice here
-        &self.data[index].as_aligned()
+        self.data[index].as_aligned()
     }
 }
 impl<A: Alignment> Index<RangeFull> for AlignedSlice<A> {
     type Output = AlignedSlice<A>;
     fn index(&self, _: RangeFull) -> &Self::Output {
-        &self
+        self
     }
 }
 
@@ -608,16 +615,14 @@ impl<A: Alignment> IndexMut<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
     }
 }
 
-unsafe fn to_alignedslice_unchecked<'a, A: Alignment>(value: &'a [u8]) -> &'a AlignedSlice<A> {
+unsafe fn to_alignedslice_unchecked<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
     debug_assert!(is_aligned_to::<A>(value));
     #[allow(unused_unsafe)]
     unsafe {
         &*(value as *const [u8] as *const AlignedSlice<A>)
     }
 }
-unsafe fn to_alignedslice_unchecked_mut<'a, A: Alignment>(
-    value: &'a mut [u8],
-) -> &'a mut AlignedSlice<A> {
+unsafe fn to_alignedslice_unchecked_mut<A: Alignment>(value: &mut [u8]) -> &mut AlignedSlice<A> {
     debug_assert!(is_aligned_to::<A>(value));
     #[allow(unused_unsafe)]
     unsafe {
@@ -668,7 +673,7 @@ impl<A: Alignment> AsMut<[u8]> for AlignedSlice<A> {
     }
 }
 
-fn align_bytes<'a, A: Alignment>(value: &'a [u8]) -> &'a AlignedSlice<A> {
+fn align_bytes<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
     let p = value as *const [u8] as *const u8 as usize;
     let offset = p.wrapping_neg() & (A::ALIGNMENT - 1);
     value[offset..].try_as_aligned().unwrap()

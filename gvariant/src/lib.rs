@@ -226,6 +226,7 @@
 //!   same format, but for serde integration.  Described as "WIP" and not
 //!   published on crates.io
 
+#![allow(clippy::manual_map)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "alloc")]
@@ -243,7 +244,6 @@ use core::{
 #[cfg(feature = "std")]
 use std::io::Write;
 
-use memchr;
 use ref_cast::RefCast;
 
 pub mod aligned_bytes;
@@ -297,9 +297,9 @@ pub trait Marker: Copy {
 
     /// Cast `data` to the appropriate rust type `Self::Type` for the type
     /// string `Self::TYPESTR`.
-    fn try_cast_mut<'a>(
-        data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
-    ) -> Result<&'a mut Self::Type, casting::WrongSize> {
+    fn try_cast_mut(
+        data: &mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
+    ) -> Result<&mut Self::Type, casting::WrongSize> {
         Self::Type::try_from_aligned_slice_mut(data)
     }
 
@@ -340,6 +340,7 @@ pub trait Marker: Copy {
     ///     # use gvariant::{gv, Marker};
     ///     let v = gv!("s").from_bytes(b"An example string\0");
     ///     assert_eq!(&*v, "An example string");
+    #[allow(clippy::wrong_self_convention)]
     #[cfg(feature = "alloc")]
     fn from_bytes(&self, data: impl AsRef<[u8]>) -> <Self::Type as ToOwned>::Owned {
         let cow = aligned_bytes::copy_to_align(data.as_ref());
@@ -466,7 +467,7 @@ macro_rules! gv {
                 #[allow(clippy::string_lit_as_bytes)]
                 const TYPESTR: &'static [u8] = $typestr.as_bytes();
             }
-        };
+        }
         // TODO: I'd much rather that this macro returns a type, rather than
         // a value.  That way getting a gvariant looks like:
         //
@@ -644,7 +645,7 @@ impl Str {
         if memchr::memchr(b'\0', b).is_some() {
             ""
         } else {
-            match core::str::from_utf8(&self.as_bytes_non_conformant()) {
+            match core::str::from_utf8(self.as_bytes_non_conformant()) {
                 Ok(x) => x,
                 Err(_) => "",
             }
@@ -1813,8 +1814,8 @@ where
         last_child,
         n_frame_offsets,
     ) {
-        Some((start, end)) => &T::from_aligned_slice(&data[..end][start..]),
-        None => &T::default_ref(),
+        Some((start, end)) => T::from_aligned_slice(&data[..end][start..]),
+        None => T::default_ref(),
     }
 }
 
@@ -1984,7 +1985,7 @@ mod tests {
     fn test_non_fixed_width_array_panic() {
         // Non-normal regression test found by fuzzing:
         let nfwa = NonFixedWidthArray::<[u8]>::from_aligned_slice(b"\x08".as_aligned());
-        &nfwa[0];
+        _ = &nfwa[0];
     }
 
     #[test]
