@@ -297,9 +297,9 @@ pub trait Marker: Copy {
 
     /// Cast `data` to the appropriate rust type `Self::Type` for the type
     /// string `Self::TYPESTR`.
-    fn try_cast_mut<'a>(
-        data: &'a mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
-    ) -> Result<&'a mut Self::Type, casting::WrongSize> {
+    fn try_cast_mut(
+        data: &mut AlignedSlice<<Self::Type as AlignOf>::AlignOf>,
+    ) -> Result<&mut Self::Type, casting::WrongSize> {
         Self::Type::try_from_aligned_slice_mut(data)
     }
 
