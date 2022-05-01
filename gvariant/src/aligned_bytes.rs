@@ -102,6 +102,8 @@ use std::io::IoSliceMut;
 /// rust stable channel yet.  This is the type-level equivalent of
 /// `enum Alignment {A1 = 1, A2 = 2, A4 = 4, A8 = 8}`.
 ///
+/// # Safety
+///
 /// This is unsafe because it must only be implemented for zero-sized types.  Do
 /// not implement this trait.  The implementations in this module should be the
 /// only implementations.
@@ -125,6 +127,11 @@ pub unsafe trait Alignment: Debug {
 /// ```ignore
 /// where A::ALIGNMENT >= 4
 /// ```
+///
+/// # Safety
+///
+/// GVariant only recognises alignment of 1, 2, 4 and 8B.  All valid
+/// implementations are provided by this crate.  Do not implment in user code.
 pub unsafe trait AlignedTo<A: Alignment>: Alignment {}
 
 /// 1-byte alignment e.g. no alignment

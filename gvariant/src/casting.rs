@@ -28,12 +28,20 @@ use crate::aligned_bytes::{is_aligned, AlignedSlice};
 use ref_cast::RefCast;
 
 /// If a type implements this trait it's a promise that all representations of
-/// underlying memory are valid for this type.  That means any struct must be
-/// `repr(C)` or ``repr(transparent)` and be made up of members that are also
-/// `AllBitPatternsValid` and have no padding.
+/// underlying memory are valid for this type.
+///
+/// # Safety
+///
+/// Any struct implementing this trait must be:
+///
+/// 1. `repr(C)` or ``repr(transparent)`
+/// 2. Be made up of members that are also `AllBitPatternsValid`
+/// 3. Have no padding.
 pub unsafe trait AllBitPatternsValid {}
 
 /// Get the alignment of a type as a [`aligned_bytes::Alignment`]
+///
+/// # Safety
 ///
 /// This trait is unsafe because we will be relying on the information from the
 /// trait to do casting safely.  The alignment needs to be correct, or at least

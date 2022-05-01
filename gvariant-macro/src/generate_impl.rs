@@ -71,7 +71,7 @@ fn write_non_fixed_size_structure(
         n_frames
     };
     let escaped = escape(spec.to_string());
-    let types: Vec<String> = children.iter().map(|x| marker_type(x)).collect();
+    let types: Vec<String> = children.iter().map(marker_type).collect();
     let mut tuple = vec![b'('];
     for child in children {
         write!(tuple, "                &'a {},", marker_type(child))?;
@@ -164,7 +164,7 @@ fn write_non_fixed_size_structure(
                 {child_size:?},
                 {last_child},
                 {n_frame_offsets}),",
-            ty = child.to_string(),
+            ty = child,
             marker_type = marker_type(child),
             i = i,
             a = a,

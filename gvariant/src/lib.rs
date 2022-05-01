@@ -226,6 +226,7 @@
 //!   same format, but for serde integration.  Described as "WIP" and not
 //!   published on crates.io
 
+#![allow(clippy::manual_map)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "alloc")]
@@ -243,7 +244,6 @@ use core::{
 #[cfg(feature = "std")]
 use std::io::Write;
 
-use memchr;
 use ref_cast::RefCast;
 
 pub mod aligned_bytes;
@@ -340,6 +340,7 @@ pub trait Marker: Copy {
     ///     # use gvariant::{gv, Marker};
     ///     let v = gv!("s").from_bytes(b"An example string\0");
     ///     assert_eq!(&*v, "An example string");
+    #[allow(clippy::wrong_self_convention)]
     #[cfg(feature = "alloc")]
     fn from_bytes(&self, data: impl AsRef<[u8]>) -> <Self::Type as ToOwned>::Owned {
         let cow = aligned_bytes::copy_to_align(data.as_ref());
