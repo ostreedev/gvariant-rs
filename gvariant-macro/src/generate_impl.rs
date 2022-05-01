@@ -10,14 +10,14 @@ pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Erro
             for child in children {
                 out += generate_types(child)?.as_ref();
             }
-            out += generate_tuple(&spec, children)?.as_ref();
+            out += generate_tuple(spec, children)?.as_ref();
             out
         }
         GVariantType::DictItem(children) => {
             let mut out = "".to_string();
             out += generate_types(&children[0])?.as_ref();
             out += generate_types(&children[1])?.as_ref();
-            out += generate_tuple(&spec, children.as_ref())?.as_ref();
+            out += generate_tuple(spec, children.as_ref())?.as_ref();
             out
         }
         GVariantType::A(x) => generate_types(x)?,
@@ -32,7 +32,7 @@ fn generate_tuple(
     spec: &GVariantType,
     children: &[GVariantType],
 ) -> Result<String, Box<dyn Error>> {
-    let size = size_of(&spec);
+    let size = size_of(spec);
     let mut out = vec![];
     if size.is_some() {
         write_packed_struct(spec, children, &mut out)
@@ -56,7 +56,7 @@ fn write_non_fixed_size_structure(
     children: &[GVariantType],
     code: &mut impl Write,
 ) -> Result<(), Box<dyn Error>> {
-    let alignment = align_of(&spec);
+    let alignment = align_of(spec);
     let n_frames: usize = children.iter().filter(|x| size_of(x).is_none()).count();
     // After all of the items have been added, a framing offset is appended, in
     // reverse order, for each non-fixed-sized item that is not the last item in
@@ -211,7 +211,7 @@ fn write_non_fixed_size_structure(
         serialize_types.push(format!(
             "T{}: ::gvariant::SerializeTo<{}> + Copy",
             n,
-            marker_type(&child)
+            marker_type(child)
         ));
         serialize_types2.push(format!("T{},", n));
     }
@@ -343,7 +343,7 @@ pub(crate) fn size_of(t: &GVariantType) -> Option<usize> {
                 let mut pos = a;
                 pos = align(pos, align_of(&x[1]));
                 pos += b;
-                pos = align(pos, align_of(&t));
+                pos = align(pos, align_of(t));
                 Some(pos)
             }
             _ => None,
@@ -422,7 +422,7 @@ fn write_packed_struct(
     let mut padding_count = 0;
     for (n, (child, &(_, a, b, c))) in children
         .iter()
-        .zip(generate_table(&children).iter())
+        .zip(generate_table(children).iter())
         .enumerate()
     {
         let start = align(a, b as usize) | c;
@@ -437,7 +437,7 @@ fn write_packed_struct(
             serialize_cmds.push(format!("f.write_all(b\"{}\")?;", "\\0".repeat(padding)));
             padding_count += 1;
         }
-        let rust_type: String = marker_type(&child);
+        let rust_type: String = marker_type(child);
         writeln!(out, "    // {} bytes {}..{}", child, start, end)?;
         writeln!(out, "    pub field_{} : {},", n, rust_type)?;
         field_arglist.push(format!("field_{} : {}", n, rust_type));

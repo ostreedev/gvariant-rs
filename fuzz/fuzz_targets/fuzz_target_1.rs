@@ -23,7 +23,7 @@ impl GLibVariantType {
         }
     }
     fn from_marker<M: Marker>(_: &M) -> GLibVariantType {
-        Self::new(&std::str::from_utf8(M::TYPESTR).unwrap())
+        Self::new(std::str::from_utf8(M::TYPESTR).unwrap())
     }
 }
 impl Drop for GLibVariantType {

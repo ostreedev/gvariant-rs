@@ -644,7 +644,7 @@ impl Str {
         if memchr::memchr(b'\0', b).is_some() {
             ""
         } else {
-            match core::str::from_utf8(&self.as_bytes_non_conformant()) {
+            match core::str::from_utf8(self.as_bytes_non_conformant()) {
                 Ok(x) => x,
                 Err(_) => "",
             }
@@ -1813,8 +1813,8 @@ where
         last_child,
         n_frame_offsets,
     ) {
-        Some((start, end)) => &T::from_aligned_slice(&data[..end][start..]),
-        None => &T::default_ref(),
+        Some((start, end)) => T::from_aligned_slice(&data[..end][start..]),
+        None => T::default_ref(),
     }
 }
 

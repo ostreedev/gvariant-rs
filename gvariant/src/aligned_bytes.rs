@@ -480,7 +480,7 @@ impl<A: Alignment> Index<Range<usize>> for AlignedSlice<A> {
     fn index(&self, index: Range<usize>) -> &Self::Output {
         // Truncating the slice on the left can affect the alignment, so we
         // return an unaligned slice here
-        &self.data[index].as_aligned()
+        self.data[index].as_aligned()
     }
 }
 impl<A: Alignment> Index<RangeInclusive<usize>> for AlignedSlice<A> {
@@ -488,7 +488,7 @@ impl<A: Alignment> Index<RangeInclusive<usize>> for AlignedSlice<A> {
     fn index(&self, index: RangeInclusive<usize>) -> &Self::Output {
         // Truncating the slice on the left can affect the alignment, so we
         // return an unaligned slice here
-        &self.data[index].as_aligned()
+        self.data[index].as_aligned()
     }
 }
 impl<A: Alignment> Index<RangeFrom<usize>> for AlignedSlice<A> {
@@ -496,13 +496,13 @@ impl<A: Alignment> Index<RangeFrom<usize>> for AlignedSlice<A> {
     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
         // Truncating the slice on the left can affect the alignment, so we
         // return an unaligned slice here
-        &self.data[index].as_aligned()
+        self.data[index].as_aligned()
     }
 }
 impl<A: Alignment> Index<RangeFull> for AlignedSlice<A> {
     type Output = AlignedSlice<A>;
     fn index(&self, _: RangeFull) -> &Self::Output {
-        &self
+        self
     }
 }
 
