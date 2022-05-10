@@ -29,22 +29,19 @@
 //! appropriate alignment convenient.  For example: use a `&impl AsAligned<A2>`
 //! parameter to accept any data with 2B or greater alignment.
 //!
-//! [`alloc_aligned`] is provided to make it easy and safe to create aligned
+//! [`AlignedBuf`] is provided to make it easy and safe to create aligned
 //! buffers. Example reading data from file into aligned buffer:
 //!
 //! ```rust
-//! # use gvariant::aligned_bytes::{A8, alloc_aligned};
+//! # use gvariant::aligned_bytes::{AlignedBuf, AsAligned};
 //! # use std::io::Read;
 //! # fn foo() -> Result<(), Box<dyn std::error::Error>> {
 //! # let mut file = std::fs::File::open("")?;
-//! let mut buf = alloc_aligned::<A8>(4096);
+//! let mut buf = vec![];
 //! let len = file.read(buf.as_mut())?;
-//! let aligned_data = &buf[..len];
+//! let mut buf : AlignedBuf = buf.into();
 //! # Ok(()) }
 //! ```
-//!
-//! I've not yet implemented it, but it may become necessary to create an
-//! equivalent to `Vec<u8>` but for aligned memory.  We'll see how we get on.
 //!
 //! #### Efficiency of statically known alignment
 //!
@@ -81,20 +78,16 @@
 pub use crate::offset::{align_offset, AlignedOffset};
 
 #[cfg(feature = "alloc")]
-use alloc::{
-    borrow::{Cow, ToOwned},
-    boxed::Box,
-};
+use alloc::borrow::{Cow, ToOwned};
 use core::ops::{
     Deref, DerefMut, Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo,
     RangeToInclusive,
 };
-use core::{
-    cmp::{max, min},
-    fmt::Debug,
-};
-#[cfg(feature = "std")]
-use std::io::IoSliceMut;
+
+#[cfg(feature = "alloc")]
+pub use crate::buf::AlignedBuf;
+use core::fmt::Debug;
+use std::marker::PhantomData;
 
 /// A trait for our alignment structs [`A1`], [`A2`], [`A4`] and [`A8`].
 ///
@@ -143,7 +136,6 @@ unsafe impl Alignment for A1 {
 unsafe impl AlignedTo<A1> for A1 {}
 
 /// 2-byte alignment
-#[repr(align(2))]
 #[derive(Debug, Copy, Clone)]
 pub struct A2;
 unsafe impl Alignment for A2 {
@@ -153,7 +145,6 @@ unsafe impl AlignedTo<A1> for A2 {}
 unsafe impl AlignedTo<A2> for A2 {}
 
 /// 4-byte alignment
-#[repr(align(4))]
 #[derive(Debug, Copy, Clone)]
 pub struct A4;
 unsafe impl Alignment for A4 {
@@ -164,16 +155,14 @@ unsafe impl AlignedTo<A2> for A4 {}
 unsafe impl AlignedTo<A4> for A4 {}
 
 /// 8-byte alignment
-#[repr(align(8))]
 #[derive(Debug, Copy, Clone)]
 pub struct A8;
 unsafe impl Alignment for A8 {
     const ALIGNMENT: usize = 8;
 }
-unsafe impl AlignedTo<A1> for A8 {}
-unsafe impl AlignedTo<A2> for A8 {}
-unsafe impl AlignedTo<A4> for A8 {}
-unsafe impl AlignedTo<A8> for A8 {}
+
+// A8 is the maximum alignment, so all Alignments must
+unsafe impl<A: Alignment> AlignedTo<A> for A8 {}
 
 /// Allows narrowing the alignment of a `&AlignedSlice`
 ///
@@ -217,14 +206,14 @@ pub trait TryAsAlignedMut<A: Alignment>: TryAsAligned<A> {
     fn try_as_aligned_mut(&mut self) -> Result<&mut AlignedSlice<A>, Misaligned>;
 }
 
-/// A byte array, but with a compile-time guaranteed minimum alignment
+/// A byte array, but tagged with GVariant alignment
 ///
 /// The aligment requirement is specfied by the type parameter A.  It will be
 /// [`A1`], [`A2`], [`A4`] or [`A8`].
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Eq)]
 pub struct AlignedSlice<A: Alignment> {
-    alignment: A,
+    alignment: PhantomData<A>,
     data: [u8],
 }
 
@@ -236,11 +225,9 @@ impl<A: Alignment> PartialEq for AlignedSlice<A> {
 
 #[cfg(feature = "alloc")]
 impl<A: Alignment> ToOwned for AlignedSlice<A> {
-    type Owned = Box<AlignedSlice<A>>;
+    type Owned = AlignedBuf;
     fn to_owned(&self) -> Self::Owned {
-        let mut owned = alloc_aligned(self.len());
-        owned.copy_from_slice(self);
-        owned
+        self.data.to_owned().into()
     }
 }
 
@@ -254,78 +241,7 @@ pub fn copy_to_align<A: Alignment>(data: &[u8]) -> Cow<'_, AlignedSlice<A>> {
     if is_aligned_to::<A>(data) {
         Cow::Borrowed(data.try_as_aligned().unwrap())
     } else {
-        let mut copy = alloc_aligned::<A>(data.len());
-        copy.copy_from_slice(data);
-        Cow::Owned(copy)
-    }
-}
-
-/// Allocate a new boxed [`AlignedSlice`].
-///
-/// Data is initialised to all 0.
-#[cfg(feature = "alloc")]
-pub fn alloc_aligned<A: Alignment>(size: usize) -> Box<AlignedSlice<A>> {
-    let layout = alloc::alloc::Layout::from_size_align(size, A::ALIGNMENT).unwrap();
-    unsafe {
-        // This is safe because:
-        //
-        // * We use the same size here as passed into layout, so the slice only
-        //   points to genuinely allocated memory
-        // * We use alloc_zeroed so the memory is completely initialised
-        // * All zeros is a valid bit pattern for [u8], as is any bit pattern
-        // * We can cast to AlignedSlice because the representation is the same
-        //   as [u8] modulo alignment, and appropriate alignment has been
-        //   specified in layout
-        let bs = core::slice::from_raw_parts_mut(alloc::alloc::alloc_zeroed(layout), size);
-        Box::from_raw(to_alignedslice_unchecked_mut(bs))
-    }
-}
-
-/// Read the contents of the `Read` into an `AlignedSlice`
-///
-/// This can be considered equivalent to `Read::read_to_end()`, but for
-/// `AlignedSlice` rather than `Vec`.
-///
-/// If we know how much data there is to read (a common case) then setting
-/// `size_hint` will allow us to perform just a single allocation and no
-/// copying.
-#[cfg(feature = "std")]
-pub fn read_to_slice<A: Alignment, R: std::io::Read>(
-    mut r: R,
-    size_hint: Option<usize>,
-) -> std::io::Result<Box<AlignedSlice<A>>> {
-    let mut bytes_read = 0;
-    let mut eof_byte = [0u8];
-    let mut buf = alloc_aligned(size_hint.unwrap_or(4000));
-
-    loop {
-        let mut ios = [
-            IoSliceMut::new(&mut buf.as_mut()[bytes_read..]),
-            IoSliceMut::new(&mut eof_byte),
-        ];
-        let this_read = r.read_vectored(&mut ios)?;
-        bytes_read += this_read;
-        if this_read == 0 {
-            // EOF
-            return Ok(realloc(buf, bytes_read));
-        }
-        if bytes_read > buf.len() {
-            // Ran out of space
-            buf = realloc(buf, max(bytes_read * 2, 4000));
-            buf[bytes_read - 1] = eof_byte[0];
-        }
-    }
-}
-
-fn realloc<A: Alignment>(s: Box<AlignedSlice<A>>, new_size: usize) -> Box<AlignedSlice<A>> {
-    if s.len() == new_size {
-        s
-    } else {
-        // TODO: Optimise to use alloc::realloc
-        let mut new_buf = alloc_aligned(new_size);
-        let up_to = min(new_size, s.len());
-        new_buf.as_mut()[..up_to].copy_from_slice(s[..up_to].as_ref());
-        new_buf
+        Cow::Owned(data.to_owned().into())
     }
 }
 
@@ -615,15 +531,18 @@ impl<A: Alignment> IndexMut<RangeFrom<AlignedOffset<A>>> for AlignedSlice<A> {
     }
 }
 
-unsafe fn to_alignedslice_unchecked<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
-    debug_assert!(is_aligned_to::<A>(value));
+pub(crate) unsafe fn to_alignedslice_unchecked<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
+    debug_assert!(value.is_empty() || is_aligned_to::<A>(value));
     #[allow(unused_unsafe)]
     unsafe {
         &*(value as *const [u8] as *const AlignedSlice<A>)
     }
 }
-unsafe fn to_alignedslice_unchecked_mut<A: Alignment>(value: &mut [u8]) -> &mut AlignedSlice<A> {
-    debug_assert!(is_aligned_to::<A>(value));
+
+pub(crate) unsafe fn to_alignedslice_unchecked_mut<A: Alignment>(
+    value: &mut [u8],
+) -> &mut AlignedSlice<A> {
+    debug_assert!(value.is_empty() || is_aligned_to::<A>(value));
     #[allow(unused_unsafe)]
     unsafe {
         &mut *(value as *mut [u8] as *mut AlignedSlice<A>)
@@ -685,39 +604,4 @@ fn align_bytes<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
 /// This is useful for implementing GVariant default values.
 pub fn empty_aligned<A: Alignment>() -> &'static AlignedSlice<A> {
     &align_bytes(b"        ")[..0]
-}
-
-#[cfg(test)]
-mod test {
-    use super::{read_to_slice, AlignedSlice, A8};
-
-    #[test]
-    fn test_read_to_slice() {
-        let mut d: Vec<u8> = vec![0; 16384];
-        for x in 0..16384 {
-            d[x] = (x % 256) as u8;
-        }
-
-        for size_hint in &[
-            Some(11),
-            None,
-            Some(0),
-            Some(1),
-            Some(7999),
-            Some(8000),
-            Some(8001),
-        ] {
-            let s: Box<AlignedSlice<A8>> = read_to_slice(b"".as_ref(), *size_hint).unwrap();
-            assert_eq!(**s, *b"");
-
-            let s: Box<AlignedSlice<A8>> = read_to_slice(&d[..12], *size_hint).unwrap();
-            assert_eq!(**s, d[..12]);
-
-            let s: Box<AlignedSlice<A8>> = read_to_slice(&d[..8000], *size_hint).unwrap();
-            assert_eq!(**s, d[..8000]);
-
-            let s: Box<AlignedSlice<A8>> = read_to_slice(d.as_slice(), *size_hint).unwrap();
-            assert_eq!(&**s, d.as_slice());
-        }
-    }
 }

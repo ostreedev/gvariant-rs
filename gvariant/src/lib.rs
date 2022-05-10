@@ -68,7 +68,6 @@
 //!
 //! * our errors to implement [`std::error::Error`]
 //! * [`Marker::deserialize`]
-//! * [`aligned_bytes::read_to_slice`]
 //! * Some CPU dependent string handling optimisations in the memchr crate
 //! * Serialisation: although this requirement could be relaxed in the future
 //!
@@ -80,7 +79,7 @@
 //!
 //! * Allocating [`AlignedSlice`]s with [`ToOwned`],
 //!   [`copy_to_align`][aligned_bytes::copy_to_align] and
-//!   [`alloc_aligned`][aligned_bytes::alloc_aligned].
+//!   [`AlignedBuf`].
 //! * The convenience API `Marker::from_bytes` - use `Marker::cast` instead
 //! * Correctly displaying non-utf-8 formatted strings
 //! * Copying unsized GVariant objects with `to_owned()`
@@ -178,13 +177,14 @@
 //!
 //! So typically code might look like:
 //!
-//!     # use gvariant::{aligned_bytes::alloc_aligned, gv, Marker};
+//!     # use gvariant::{aligned_bytes::AlignedBuf, gv, Marker};
 //!     # use std::io::Read;
 //!     # fn a() -> std::io::Result<()> {
 //!     # let mut file = std::fs::File::open("")?;
-//!     let mut buf = alloc_aligned(4096);
-//!     let len = file.read(&mut buf)?;
-//!     let data = gv!("a(sia{sv})").cast(&buf[..len]);
+//!     let mut buf = vec![];
+//!     file.read_to_end(&mut buf)?;
+//!     let mut buf : AlignedBuf = buf.into();
+//!     let data = gv!("a(sia{sv})").cast(&buf);
 //!     # todo!()
 //!     # }
 //!
@@ -225,6 +225,57 @@
 //! * [serde_gvariant](https://github.com/lucab/serde_gvariant) - Implements the
 //!   same format, but for serde integration.  Described as "WIP" and not
 //!   published on crates.io
+//!
+//! # Release Notes
+//!
+//! ## 0.5.0
+//!
+//! ### Breaking changes
+//!
+//! * The owned equivalent of [Str] is [GString].  In 0.4 it was [Box<Str>].
+//!   This affects the return type of `gv!("s").from_bytes(...)`.
+//! * [Owned<T>] replaces [Box<T>] as the owned equivalent of [Variant],
+//!   [NonFixedWidthArray], [MaybeFixedSize], [MaybeNonFixedSize] and the
+//!   macro-generated GVariant structs that implement the [Structure] trait.
+//! * Removed `aligned_bytes::read_to_slice` in favour of using [AlignedBuf].
+//!   [AlignedBuf] is more convenient as it interoperates with [Vec<u8>].  So
+//!   instead of writing:
+//!
+//!   ```compile_fail
+//!   use gvariant::aligned_bytes::{AlignedSlice, read_to_slice, A8};
+//!   let b : Box<AlignedSlice<A8>> = read_to_slice(file)?;
+//!   ```
+//!
+//!   you write:
+//!
+//!   ```
+//!   use gvariant::aligned_bytes::AlignedBuf;
+//!   use std::io::Read;
+//!   # fn main() -> std::io::Result<()> {
+//!   #     let mut file : &[u8] = b"";
+//!         let mut v = vec![];
+//!         file.read_to_end(&mut v)?;
+//!         let b : AlignedBuf = v.into();
+//!   #     Ok(())
+//!   # }
+//!   ```
+//! * Removed `aligned_bytes::alloc_aligned`.  Use [AlignedBuf] instead.
+//!   According to miri `alloc_aligned` was unsound.  [AlignedBuf] is sound and
+//!   more convenient to use.
+//!
+//! ### New features
+//!
+//! * New struct [GString] introduced.  It replaces [Box<Str>] as the owned
+//!   equivalent of [Str].  Unlike [Box<Str>] it can be extended and written
+//!   to in-place.
+//! * New struct [AlignedBuf] introduced.  This is to [AlignedSlice] as
+//!   [Vec<u8>] is to [[u8]].  There is cheap conversion to/from [Vec<u8>]
+//!   which will make it much easier to integrate with the broader Rust
+//!   ecosystem - including reading from files, async, etc.
+//! * New struct [Owned<T>] introduced.  It replaces [Box<T>] as the owned
+//!   eqivalent of most of our unsized types.  Namely: [Variant],
+//!   [NonFixedWidthArray], [MaybeFixedSize], [MaybeNonFixedSize] and the
+//!   macro-generated GVariant structs that implement the [Structure] trait.
 
 #![allow(clippy::manual_map)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -235,10 +286,12 @@ extern crate alloc;
 use alloc::{borrow::ToOwned, string::String};
 
 use core::{
+    borrow::Borrow,
     convert::TryInto,
     fmt::{Debug, Display},
     hash::Hash,
     marker::PhantomData,
+    ops::Deref,
 };
 
 #[cfg(feature = "std")]
@@ -252,7 +305,11 @@ use offset::align_offset;
 pub mod casting;
 mod offset;
 
+#[cfg(feature = "alloc")]
+pub(crate) mod buf;
+
 use aligned_bytes::{empty_aligned, AlignedSlice, AsAligned, A8};
+
 use casting::{AlignOf, AllBitPatternsValid};
 
 #[doc(hidden)]
@@ -320,10 +377,12 @@ pub trait Marker: Copy {
     #[cfg(feature = "std")]
     fn deserialize(
         &self,
-        r: impl std::io::Read,
+        mut r: impl std::io::Read,
     ) -> std::io::Result<<Self::Type as ToOwned>::Owned> {
-        let data = aligned_bytes::read_to_slice(r, None)?;
-        Ok(self.cast(&*data).to_owned())
+        let mut buf = vec![];
+        r.read_to_end(&mut buf)?;
+        let buf: buf::AlignedBuf = buf.into();
+        Ok(self.cast(buf.as_aligned()).to_owned())
     }
 
     /// Deserialise the given `data`, making a copy in the process.
@@ -331,7 +390,7 @@ pub trait Marker: Copy {
     /// This is a convenience API wrapper around `copy_to_align` and `cast`
     /// allowing users to not have to think about the alignment of their data.
     /// It is usually better to ensure the data you have is aligned, for example
-    /// using `alloc_aligned` or `read_to_slice`, and then use `cast` directly.
+    /// using `copy_to_align` or `AlignedBuf`, and then use `cast` directly.
     /// This way you can avoid additional allocations, avoid additional copying,
     /// and work in noalloc contexts.
     ///
@@ -397,6 +456,68 @@ pub trait Marker: Copy {
 /// wish to implement it for your own types as well.
 pub trait SerializeTo<T: Cast + ?Sized> {
     fn serialize(self, f: &mut impl Write) -> std::io::Result<usize>;
+}
+
+/// Owned version of unsized types [Variant], [NonFixedWidthArray],
+/// [MaybeFixedSize], [MaybeNonFixedSize] and the macro-generated GVariant
+/// structs that implement the [Structure] trait.
+///
+/// Much like [Box<T>], [Owned<T>] dereferences to `T`.
+///
+/// Can be converted to/from a [Vec<u8>] for free[^1].
+///
+/// [^1]: See notes in [AlignedBuf].
+pub struct Owned<T: Cast + ?Sized> {
+    data: buf::AlignedBuf,
+    ty: PhantomData<T>,
+}
+
+impl<T: Cast + ?Sized> Debug for Owned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T: Cast + ?Sized> Display for Owned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T: Cast + ?Sized> Owned<T> {
+    /// Copies the bytes
+    pub fn from_bytes(s: &[u8]) -> Self {
+        Self {
+            data: s.to_owned().into(),
+            ty: PhantomData::<T> {},
+        }
+    }
+    pub fn from_vec(data: Vec<u8>) -> Self {
+        Self {
+            data: data.into(),
+            ty: PhantomData::<T> {},
+        }
+    }
+}
+
+impl<T: Cast + ?Sized> Borrow<T> for Owned<T> {
+    fn borrow(&self) -> &T {
+        &*self
+    }
+}
+
+impl<T: Cast + ?Sized> Deref for Owned<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        T::from_aligned_slice(self.data.as_aligned())
+    }
+}
+
+impl<T: ?Sized + Cast> From<Vec<u8>> for Owned<T> {
+    fn from(data: Vec<u8>) -> Self {
+        Self::from_vec(data)
+    }
 }
 
 /// Maps from GVariant typestrs to compatible Rust types returning a `Marker`.
@@ -591,13 +712,7 @@ impl_cast_for!(f64, 0.);
 pub struct Str {
     data: [u8],
 }
-#[cfg(feature = "alloc")]
-impl ToOwned for Str {
-    type Owned = Box<Self>;
-    fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned().into_boxed_slice())
-    }
-}
+
 impl Str {
     /// Convert `&Str` to `&[u8]`
     ///
@@ -749,6 +864,13 @@ impl From<&Str> for String {
         x.to_str().into()
     }
 }
+#[cfg(feature = "alloc")]
+impl ToOwned for Str {
+    type Owned = GString;
+    fn to_owned(&self) -> Self::Owned {
+        GString::from_str_unchecked(self.to_str())
+    }
+}
 
 // TODO: Replace this with core::str::lossy::Utf8Lossy if it's ever stabilised.
 struct DisplayUtf8Lossy<'a>(&'a [u8]);
@@ -781,6 +903,193 @@ impl core::fmt::Debug for DisplayUtf8Lossy<'_> {
         }
     }
 }
+
+#[cfg(feature = "alloc")]
+mod gstring {
+    use super::*;
+
+    use core::{borrow::Borrow, convert::TryFrom, ops::Deref};
+    #[cfg(feature = "std")]
+    use std::ffi::CStr;
+
+    /// Owned version of `Str`
+    ///
+    /// Invariants:
+    ///
+    /// * must be UTF-8 encoded (much like [std::string::String])
+    /// * must not contain embedded NUL bytes (much like [std::ffi::CString])
+    ///
+    /// Requirements:
+    ///
+    /// * Must be convertable to Str without mutation - so internally it is
+    ///   stored with a terminating NUL byte.
+    ///
+    /// ```
+    /// use gvariant::{gv, GString, Marker};
+    /// use core::fmt::Write;
+    /// let mut s = GString::new();
+    /// write!(s, "I love the number {}, it's the best", 5);
+    /// assert_eq!(s.as_str(), "I love the number 5, it's the best");
+    ///
+    /// let s: GString = gv!("s").from_bytes("Bloo blah\0");
+    /// assert_eq!(s.as_str(), "Bloo blah");
+    /// ```
+    ///
+    /// New in 0.5.0
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+    pub struct GString {
+        // Invariant: data contains a single embedded NUL byte at the end and no
+        // other NUL bytes anywhere else
+        data: String,
+    }
+    impl Default for GString {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+    impl GString {
+        /// Extracts a string slice containing the entire string.  Doesn't include
+        /// the trailing NUL byte.
+        pub fn as_str(&self) -> &str {
+            self.as_ref()
+        }
+        /// Returns this [String]’s capacity, in bytes.
+        pub fn capacity(&self) -> usize {
+            self.data.capacity() - 1
+        }
+        /// Ensures that this string’s capacity is at least `additional` bytes
+        /// larger than its length.
+        ///
+        /// See [String::reserve]
+        pub fn reserve(&mut self, additional: usize) {
+            self.data.reserve(additional)
+        }
+        /// Truncates this string, removing all contents.
+        ///
+        /// See [String::clear]
+        pub fn clear(&mut self) {
+            self.data.clear();
+            self.data.push('\0');
+        }
+        /// Returns the length of this String, in bytes not including terminating
+        /// NUL.
+        ///
+        /// See [String::len].
+        pub fn len(&self) -> usize {
+            self.data.len() - 1
+        }
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+        /// Creates a new empty string.
+        pub fn new() -> Self {
+            Self {
+                data: "\0".to_owned(),
+            }
+        }
+        /// Creates a new empty String with a particular capacity.
+        ///
+        /// See [String::with_capacity].
+        pub fn with_capacity(capacity: usize) -> Self {
+            let mut data = String::with_capacity(capacity + 1);
+            data.push('\0');
+            Self {
+                data: "\0".to_owned(),
+            }
+        }
+        /// Appends a given string slice onto the end of this string.
+        ///
+        /// Returns error if the passed string contains a NUL byte.
+        pub fn try_push_str(&mut self, s: &str) -> Result<(), ContainsNulBytesError> {
+            if memchr::memchr(b'\0', s.as_bytes()).is_some() {
+                Err(ContainsNulBytesError())
+            } else {
+                self.data.reserve(s.len());
+                self.data.pop();
+                self.data += s;
+                self.data.push('\0');
+                Ok(())
+            }
+        }
+        pub(crate) fn from_str_unchecked(s: &str) -> Self {
+            let mut data = String::with_capacity(s.len() + 1);
+            data.push_str(s);
+            data.push('\0');
+            Self { data }
+        }
+    }
+    impl Display for GString {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let s: &str = self.as_ref();
+            Display::fmt(s, f)
+        }
+    }
+    impl Debug for GString {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let s: &str = self.as_ref();
+            Debug::fmt(s, f)
+        }
+    }
+    impl Borrow<Str> for GString {
+        fn borrow(&self) -> &Str {
+            self.deref()
+        }
+    }
+    impl Deref for GString {
+        type Target = Str;
+
+        fn deref(&self) -> &Self::Target {
+            Str::try_from_aligned_slice(self.data.as_bytes().as_aligned()).unwrap()
+        }
+    }
+    impl core::fmt::Write for GString {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            self.try_push_str(s).map_err(|_| core::fmt::Error)
+        }
+    }
+
+    pub struct ContainsNulBytesError();
+
+    impl TryFrom<String> for GString {
+        type Error = ContainsNulBytesError;
+
+        fn try_from(mut value: String) -> Result<Self, Self::Error> {
+            if memchr::memchr(b'\0', value.as_bytes()).is_some() {
+                Err(ContainsNulBytesError())
+            } else {
+                value.push('\0');
+                Ok(GString { data: value })
+            }
+        }
+    }
+    impl From<GString> for String {
+        fn from(mut s: GString) -> Self {
+            // Remove trailing NUL:
+            s.data.pop();
+            s.data
+        }
+    }
+    #[cfg(feature = "std")]
+    impl From<GString> for std::ffi::CString {
+        fn from(s: GString) -> Self {
+            // Unwrap is ok: We don't contain embedded NUL bytes
+            Self::from_vec_with_nul(s.data.into()).unwrap()
+        }
+    }
+    #[cfg(feature = "std")]
+    impl AsRef<CStr> for GString {
+        fn as_ref(&self) -> &CStr {
+            CStr::from_bytes_with_nul(self.data.as_bytes()).unwrap()
+        }
+    }
+    impl AsRef<str> for GString {
+        fn as_ref(&self) -> &str {
+            &self.data[..self.data.len() - 1]
+        }
+    }
+}
+#[cfg(feature = "alloc")]
+pub use gstring::{ContainsNulBytesError, GString};
 
 /// The GVariant Variant **v** type
 ///
@@ -853,9 +1162,9 @@ impl Debug for Variant {
 }
 #[cfg(feature = "alloc")]
 impl ToOwned for Variant {
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.0.to_owned())
+        Owned::from_bytes(&*self.0)
     }
 }
 
@@ -1130,9 +1439,9 @@ impl<T: Cast + Debug + ?Sized> Debug for NonFixedWidthArray<T> {
 }
 #[cfg(feature = "alloc")]
 impl<T: Cast + ?Sized> ToOwned for NonFixedWidthArray<T> {
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned())
+        Self::Owned::from_bytes(&*self.data)
     }
 }
 unsafe impl<T: Cast + ?Sized> AlignOf for NonFixedWidthArray<T> {
@@ -1404,9 +1713,9 @@ impl<T: Cast> ToOwned for MaybeFixedSize<T> {
     // that `T::AlignOf >= mem::align_of<T>`, the inverse is not true.  We could
     // make that guarantee, but then this wouldn't be valid on architectures
     // where i64 is 32-bit aligned for example.
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned())
+        Owned::from_bytes(&*self.data)
     }
 }
 impl<T: Cast + Debug> Debug for MaybeFixedSize<T> {
@@ -1553,9 +1862,9 @@ impl<T: Cast + Debug + ?Sized> Debug for MaybeNonFixedSize<T> {
 }
 #[cfg(feature = "alloc")]
 impl<T: Cast + ?Sized> ToOwned for MaybeNonFixedSize<T> {
-    type Owned = Box<Self>;
+    type Owned = Owned<Self>;
     fn to_owned(&self) -> Self::Owned {
-        casting::ref_cast_box(self.data.to_owned())
+        Owned::from_bytes(&*self.data)
     }
 }
 impl<T: Cast + ?Sized> MaybeNonFixedSize<T> {
@@ -1990,7 +2299,10 @@ mod tests {
 
     #[test]
     fn test_spec_examples() {
-        assert_eq!(&*gv!("s").from_bytes(b"hello world\0"), "hello world");
+        assert_eq!(
+            gv!("s").from_bytes(b"hello world\0").as_str(),
+            "hello world"
+        );
         assert_eq!(gv!("s").serialize_to_vec("hello world"), b"hello world\0");
 
         assert_eq!(
@@ -2099,7 +2411,7 @@ mod tests {
         assert_eq!(vv, b"hello\0goodbye\0\x06\x0e\0as\0v");
 
         // Deserialize and unwrap those variants to get the original **as** back:
-        let de_vv: Box<Variant> = gv!("v").from_bytes(vv);
+        let de_vv: Owned<Variant> = gv!("v").from_bytes(vv);
         let de_v = de_vv.get(gv!("v")).unwrap();
         let de = de_v.get(gv!("as")).unwrap();
         assert_eq!(de, ["hello", "goodbye"].as_ref())

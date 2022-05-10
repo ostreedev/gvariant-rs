@@ -94,10 +94,9 @@ fn write_non_fixed_size_structure(
         }}
     }}
     impl ToOwned for Structure{spec} {{
-        type Owned = Box<Self>;
+        type Owned = Owned<Self>;
         fn to_owned(&self) -> Self::Owned {{
-            let cp = self.data.to_owned();
-            unsafe {{ Box::from_raw(Self::from_aligned_slice_mut(Box::leak(cp)) as *mut Self) }}
+            Owned::from_bytes(&*self.data)
         }}
     }}
     impl ::gvariant::Cast for Structure{spec} {{
