@@ -19,7 +19,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gvariant = "0.4"
+gvariant = "0.5"
 ```
 
 Example: read an ostree dirtree file and print the listing:
