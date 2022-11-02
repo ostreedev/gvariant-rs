@@ -41,7 +41,7 @@
 //!
 //! [GLib implementation]: https://developer.gnome.org/glib/stable/glib-GVariant.html
 //! [GVariant Schema Compiler]: https://gitlab.gnome.org/alexl/variant-schema-compiler/
-//! [GVariant specification]: https://people.gnome.org/~desrt/gvariant-serialisation.pdf
+//! [GVariant specification]: https://developer.gnome.org/documentation/specifications/gvariant-specification-1.0.html
 //!
 //! ## Status
 //!
