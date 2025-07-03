@@ -2,7 +2,7 @@
 
 extern crate proc_macro;
 use proc_macro::TokenStream;
-use std::error::Error;
+use std::{collections::HashSet, error::Error};
 
 mod generate_impl;
 mod type_parser;
@@ -20,7 +20,8 @@ pub fn gv_type(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn define_gv(input: TokenStream) -> TokenStream {
     let typestr = parse_macro_input!(input as LitStr).value();
-    generate_impl::generate_types(&one(typestr.as_ref()).unwrap())
+    let mut defined_types: HashSet<GVariantType> = HashSet::new();
+    generate_impl::generate_types(&one(typestr.as_ref()).unwrap(), &mut defined_types)
         .unwrap()
         .parse()
         .unwrap()

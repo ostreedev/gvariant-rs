@@ -12,7 +12,7 @@ impl fmt::Display for ParseError {
 }
 impl Error for ParseError {}
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Hash, Eq)]
 pub(crate) enum GVariantType {
     B,
     Y,
