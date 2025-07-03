@@ -193,6 +193,25 @@ fn test_complex_types() {
 }
 
 #[test]
+fn test_repeated_types() {
+    let foo = [("hi", 3)];
+    let data = gv!("(a{si}a{si})").serialize_to_vec(&(&foo, &foo));
+    let aligned = copy_to_align(&*data);
+
+    assert_eq!(
+        &data,
+        b"hi\x00\x00\x03\x00\x00\x00\x03\x09\x00\x00hi\x00\x00\x03\x00\x00\x00\x03\x09\x0a"
+    );
+
+    let s = gv!("(a{si}a{si})").cast(aligned.as_ref()).to_tuple();
+    println!("{:?}", s);
+    assert_eq!(s.0, s.1);
+    assert_eq!(s.0.len(), 1);
+    assert_eq!(s.0[0].to_tuple().0, "hi");
+    assert_eq!(*s.0[0].to_tuple().1, 3);
+}
+
+#[test]
 fn test_spec_examples() {
     let data = copy_to_align(b"foo\0\xff\xff\xff\xff\x04");
     let (s, i) = gv!("(si)").cast(data.as_ref()).to_tuple();
