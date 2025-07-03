@@ -1,27 +1,37 @@
-use std::error::Error;
 use std::io::Write;
+use std::{collections::HashSet, error::Error};
 
 use crate::{marker_type, type_parser::GVariantType};
 
-pub(crate) fn generate_types(spec: &GVariantType) -> Result<String, Box<dyn Error>> {
+pub(crate) fn generate_types(
+    spec: &GVariantType,
+    defined_types: &mut HashSet<GVariantType>,
+) -> Result<String, Box<dyn Error>> {
+    if defined_types.contains(spec) {
+        // If we've already defined this type in this scope.  Don't want to
+        // define it again otherwise we get "must be defined only once in the
+        // type namespace of this module" compiler errors:
+        return Ok("".to_owned());
+    }
+    defined_types.insert(spec.clone());
     Ok(match spec {
         GVariantType::Tuple(children) => {
             let mut out = "".to_string();
             for child in children {
-                out += generate_types(child)?.as_ref();
+                out += generate_types(child, defined_types)?.as_ref();
             }
             out += generate_tuple(spec, children)?.as_ref();
             out
         }
         GVariantType::DictItem(children) => {
             let mut out = "".to_string();
-            out += generate_types(&children[0])?.as_ref();
-            out += generate_types(&children[1])?.as_ref();
+            out += generate_types(&children[0], defined_types)?.as_ref();
+            out += generate_types(&children[1], defined_types)?.as_ref();
             out += generate_tuple(spec, children.as_ref())?.as_ref();
             out
         }
-        GVariantType::A(x) => generate_types(x)?,
-        GVariantType::M(x) => generate_types(x)?,
+        GVariantType::A(x) => generate_types(x, defined_types)?,
+        GVariantType::M(x) => generate_types(x, defined_types)?,
 
         // Everything else is a builtin
         _ => "".to_owned(),

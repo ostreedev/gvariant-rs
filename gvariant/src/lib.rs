@@ -1629,11 +1629,11 @@ where
         let mut bytes_written = 0;
         let mut offsets = vec![];
         for x in self.into_iter() {
-            bytes_written += x.serialize(f)?;
-            offsets.push(bytes_written);
             let padding = align_offset::<GvT::AlignOf>(bytes_written).to_usize() - bytes_written;
             f.write_all(&b"\0\0\0\0\0\0\0"[..padding])?;
             bytes_written += padding;
+            bytes_written += x.serialize(f)?;
+            offsets.push(bytes_written);
         }
         write_offsets(bytes_written, offsets.as_ref(), f)
     }
