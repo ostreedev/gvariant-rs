@@ -337,9 +337,7 @@ impl<FromA: Alignment, ToA: Alignment> TryAsAligned<ToA> for AlignedSlice<FromA>
     fn try_as_aligned(&self) -> Result<&AlignedSlice<ToA>, Misaligned> {
         // If narrowing the alignment we know it's fine (at compile time).  If
         // widening the alignment we must fall back to runtime check
-        if core::mem::align_of::<FromA>() >= core::mem::align_of::<ToA>()
-            || is_aligned_to::<ToA>(self)
-        {
+        if FromA::ALIGNMENT >= ToA::ALIGNMENT || is_aligned_to::<ToA>(self) {
             Ok(unsafe { &*(self as *const Self as *const AlignedSlice<ToA>) })
         } else {
             Err(Misaligned {})
@@ -350,9 +348,7 @@ impl<FromA: Alignment, ToA: Alignment> TryAsAlignedMut<ToA> for AlignedSlice<Fro
     fn try_as_aligned_mut(&mut self) -> Result<&mut AlignedSlice<ToA>, Misaligned> {
         // If narrowing the alignment we know it's fine (at compile time).  If
         // widening the alignment we must fall back to runtime check
-        if core::mem::align_of::<FromA>() >= core::mem::align_of::<ToA>()
-            || is_aligned_to::<ToA>(self)
-        {
+        if FromA::ALIGNMENT >= ToA::ALIGNMENT || is_aligned_to::<ToA>(self) {
             Ok(unsafe { &mut *(self as *mut Self as *mut AlignedSlice<ToA>) })
         } else {
             Err(Misaligned {})
@@ -604,4 +600,23 @@ fn align_bytes<A: Alignment>(value: &[u8]) -> &AlignedSlice<A> {
 /// This is useful for implementing GVariant default values.
 pub fn empty_aligned<A: Alignment>() -> &'static AlignedSlice<A> {
     &align_bytes(b"        ")[..0]
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_try_align() {
+        #[repr(align(8))]
+        struct AlignedBytes([u8; 16]);
+
+        let data = AlignedBytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let bytes = &data.0[..];
+
+        let aligned = TryAsAligned::<A8>::try_as_aligned(&bytes);
+        assert!(aligned.is_ok());
+        let misaligned = TryAsAligned::<A8>::try_as_aligned(&bytes[1..]);
+        assert!(misaligned.is_err());
+    }
 }
