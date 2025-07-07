@@ -1,6 +1,6 @@
 [package]
 name = "gvariant-macro"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["William Manley <will@stb-tester.com>"]
 edition = "2018"
 description = "Proc macros for the gvariant crate"
